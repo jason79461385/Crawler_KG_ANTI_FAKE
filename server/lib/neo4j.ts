@@ -17,8 +17,8 @@ type GraphEdge = {
 };
 
 const uri = process.env.NEO4J_URI;
-const username = process.env.NEO4J_USERNAME;
-const password = process.env.NEO4J_PASSWORD;
+const username = process.env.NEO4J_USER ?? process.env.NEO4J_USERNAME;
+const password = process.env.NEO4J_PASS ?? process.env.NEO4J_PASSWORD;
 const database = process.env.NEO4J_DATABASE || "neo4j";
 
 const driver =
@@ -26,20 +26,30 @@ const driver =
     ? neo4j.driver(uri, neo4j.auth.basic(username, password))
     : null;
 
+let neo4jAvailable = Boolean(driver);
+let neo4jStatusMessage = driver
+  ? "Neo4j configured, waiting for connectivity check."
+  : "Neo4j is not configured.";
+
 export function isNeo4jEnabled() {
-  return Boolean(driver);
+  return Boolean(driver) && neo4jAvailable;
 }
 
 export function getNeo4jStatus() {
   return {
     enabled: isNeo4jEnabled(),
     database,
+    message: neo4jStatusMessage,
   };
 }
 
 export async function syncPostsToNeo4j(posts: DemoPost[]) {
   if (!driver) {
     return { synced: false, reason: "Neo4j is not configured." };
+  }
+
+  if (!neo4jAvailable) {
+    return { synced: false, reason: neo4jStatusMessage };
   }
 
   const session = driver.session({ database });
@@ -94,14 +104,18 @@ export async function syncPostsToNeo4j(posts: DemoPost[]) {
       }
     });
 
+    neo4jStatusMessage = `Connected to Neo4j database "${database}".`;
     return { synced: true };
+  } catch (error) {
+    handleNeo4jFailure(error);
+    return { synced: false, reason: neo4jStatusMessage };
   } finally {
     await session.close();
   }
 }
 
 export async function getGraphFromNeo4j(limit = 10) {
-  if (!driver) {
+  if (!driver || !neo4jAvailable) {
     return null;
   }
 
@@ -150,10 +164,14 @@ export async function getGraphFromNeo4j(limit = 10) {
       });
     }
 
+    neo4jStatusMessage = `Connected to Neo4j database "${database}".`;
     return {
       nodes: [...nodeMap.values()],
       edges,
     };
+  } catch (error) {
+    handleNeo4jFailure(error);
+    return null;
   } finally {
     await session.close();
   }
@@ -163,4 +181,13 @@ export async function closeNeo4j() {
   if (driver) {
     await driver.close();
   }
+}
+
+function handleNeo4jFailure(error: unknown) {
+  neo4jAvailable = false;
+  neo4jStatusMessage =
+    error instanceof Error
+      ? `Neo4j unavailable: ${error.message}`
+      : "Neo4j unavailable due to an unknown error.";
+  console.error(neo4jStatusMessage);
 }

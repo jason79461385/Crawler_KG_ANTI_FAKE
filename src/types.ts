@@ -19,6 +19,7 @@ export type SourceSnapshot = {
     provider: "neo4j" | "memory";
     enabled: boolean;
     database: string;
+    message: string;
   };
   latestScripts: LatestScript[];
 };

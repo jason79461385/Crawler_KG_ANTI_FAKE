@@ -1,3 +1,4 @@
+import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import {
@@ -36,7 +37,7 @@ app.post("/api/crawl", async (_request, response) => {
   response.json(getSnapshot());
 });
 
-app.post("/api/analyze", (request, response) => {
+app.post("/api/analyze", async (request, response) => {
   const message =
     typeof request.body?.message === "string" ? request.body.message : "";
 
@@ -45,7 +46,7 @@ app.post("/api/analyze", (request, response) => {
     return;
   }
 
-  response.json(analyzeMessage(message));
+  response.json(await analyzeMessage(message));
 });
 
 app.post("/api/verify-site", async (request, response) => {
@@ -67,4 +68,8 @@ app.post("/api/verify-site", async (request, response) => {
 
 app.listen(port, () => {
   console.log(`Scam demo API listening on http://localhost:${port}`);
+});
+
+void crawlLiveSources().catch((error) => {
+  console.error("Initial live crawl failed:", error);
 });

@@ -39,16 +39,18 @@ export async function crawlGoogleNewsPosts() {
   const items = parsed.rss?.channel?.item;
   const normalizedItems = Array.isArray(items) ? items : items ? [items] : [];
 
-  const posts = normalizedItems.slice(0, 8).map((item, index) =>
-    normalizePost({
-      id: `google-news-${index}`,
-      source: "Google News",
-      board: "News Search",
-      title: sanitize(item.title ?? "Google News 詐騙案例"),
-      content: sanitize(item.description ?? item.link ?? ""),
-      url: item.link,
-      publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
-    }),
+  const posts = await Promise.all(
+    normalizedItems.slice(0, 8).map(async (item, index) =>
+      normalizePost({
+        id: `google-news-${index}`,
+        source: "Google News",
+        board: "News Search",
+        title: sanitize(item.title ?? "Google News 詐騙案例"),
+        content: sanitize(item.description ?? item.link ?? ""),
+        url: item.link ? await resolveArticleUrl(item.link) : undefined,
+        publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
+      }),
+    ),
   );
 
   if (posts.length === 0) {
@@ -63,4 +65,20 @@ function sanitize(value: string) {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function resolveArticleUrl(url: string) {
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; ScamIntelDemo/1.0; +https://localhost)",
+      },
+    });
+
+    return response.url || url;
+  } catch {
+    return url;
+  }
 }

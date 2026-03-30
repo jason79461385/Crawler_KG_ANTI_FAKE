@@ -288,6 +288,9 @@ function App() {
               <div className="mt-4 rounded-2xl border border-white/8 bg-slate-950/28 px-4 py-3 text-sm text-slate-200">
                 KG 儲存層：{snapshot?.graphStore.enabled ? `Neo4j (${snapshot.graphStore.database})` : "Memory fallback"}
               </div>
+              <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/22 px-4 py-3 text-sm leading-6 text-slate-300/86">
+                {snapshot?.graphStore.message}
+              </div>
 
               {error ? (
                 <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">

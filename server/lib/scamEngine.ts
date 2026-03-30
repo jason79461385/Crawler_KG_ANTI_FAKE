@@ -1,5 +1,12 @@
 import { demoPosts, type DemoPost } from "../data/demoPosts";
 import {
+  cosineSimilarity,
+  createEmbedding,
+  generateAlertWithLlm,
+  isEmbeddingConfigured,
+  isLlmConfigured,
+} from "./llm";
+import {
   getGraphFromNeo4j,
   getNeo4jStatus,
   isNeo4jEnabled,
@@ -30,6 +37,7 @@ export type SnapshotResponse = {
     provider: "neo4j" | "memory";
     enabled: boolean;
     database: string;
+    message: string;
   };
   latestScripts: Array<{
     scamType: string;
@@ -141,6 +149,7 @@ type CrawlState = {
 const keywords = getRiskKeywords();
 
 let crawlState: CrawlState = createDemoState();
+const embeddingCache = new Map<string, number[]>();
 
 export async function crawlLiveSources() {
   const updatedAt = new Date().toISOString();
@@ -200,6 +209,8 @@ export async function crawlLiveSources() {
     await syncPostsToNeo4j(getAllPosts());
   }
 
+  await warmEmbeddings(getAllPosts());
+
   return {
     posts: getAllPosts(),
     updatedAt,
@@ -230,6 +241,7 @@ export function getSnapshot(): SnapshotResponse {
       provider: neo4jStatus.enabled ? "neo4j" : "memory",
       enabled: neo4jStatus.enabled,
       database: neo4jStatus.database,
+      message: neo4jStatus.message,
     },
     latestScripts: buildLatestScripts(posts),
   };
@@ -254,13 +266,14 @@ export function getFeed(): FeedResponse {
   return { posts };
 }
 
-export function analyzeMessage(message: string): AnalysisResult {
+export async function analyzeMessage(message: string): Promise<AnalysisResult> {
   const posts = getAllPosts();
   const normalized = message.trim();
   const matchedKeywords = keywords.filter((keyword) =>
     normalized.toLowerCase().includes(keyword.toLowerCase()),
   );
 
+  const messageEmbedding = await getEmbeddingForText(normalized);
   const scoredEvidence = posts
     .map((post) => {
       const overlap = [
@@ -276,7 +289,12 @@ export function analyzeMessage(message: string): AnalysisResult {
           post.title.includes(keyword) ||
           overlap.includes(keyword),
       );
-      const score = overlap.length * 24 + keywordHits.length * 14;
+      const embedding = embeddingCache.get(post.id);
+      const semanticScore =
+        messageEmbedding && embedding
+          ? Math.max(0, cosineSimilarity(messageEmbedding, embedding)) * 42
+          : 0;
+      const score = overlap.length * 24 + keywordHits.length * 14 + semanticScore;
 
       return {
         post,
@@ -307,6 +325,16 @@ export function analyzeMessage(message: string): AnalysisResult {
       matchedEntities.length * 10 +
       scoredEvidence.length * 14,
   );
+  const riskLabel =
+    score >= 70 ? "高度疑似詐騙" : score >= 40 ? "具有明顯風險" : "有待進一步查證";
+
+  const llmAlert = await buildLlmAlert({
+    message: normalized,
+    matchedKeywords,
+    matchedEntities,
+    evidence: scoredEvidence.map((item) => item.post),
+    riskLabel,
+  });
 
   return {
     risk: {
@@ -328,7 +356,7 @@ export function analyzeMessage(message: string): AnalysisResult {
       publishedAt: post.publishedAt,
     })),
     knowledgeGraph: graph,
-    alert: buildAlert({
+    alert: llmAlert ?? buildAlert({
       message: normalized,
       riskScore: score,
       matchedKeywords,
@@ -636,7 +664,9 @@ function createDemoState(): CrawlState {
       {
         name: "PTT",
         description: "預設資料：模擬自公開看板案例。",
-        posts: demoPosts.filter((post) => post.source === "PTT"),
+        posts: demoPosts
+          .filter((post) => post.source === "PTT")
+          .map((post) => ({ ...post, url: undefined })),
         live: false,
         lastUpdated: updatedAt,
         errors: [],
@@ -646,7 +676,11 @@ function createDemoState(): CrawlState {
         description: "預設資料：以新聞案例補充搜尋結果。",
         posts: demoPosts
           .filter((post) => post.source === "Dcard")
-          .map((post) => ({ ...post, source: "Google News" as const })),
+          .map((post) => ({
+            ...post,
+            source: "Google News" as const,
+            url: undefined,
+          })),
         live: false,
         lastUpdated: updatedAt,
         errors: [],
@@ -677,4 +711,61 @@ async function safeRun<T>(runner: () => Promise<T>) {
       error: error instanceof Error ? error.message : "unknown crawler error",
     };
   }
+}
+
+async function warmEmbeddings(posts: DemoPost[]) {
+  if (!isEmbeddingConfigured()) {
+    return;
+  }
+
+  await Promise.all(
+    posts.map(async (post) => {
+      if (!embeddingCache.has(post.id)) {
+        const embedding = await createEmbedding(`${post.title}\n${post.content}`);
+        if (embedding) {
+          embeddingCache.set(post.id, embedding.embedding);
+        }
+      }
+    }),
+  );
+}
+
+async function getEmbeddingForText(input: string) {
+  if (!isEmbeddingConfigured()) {
+    return null;
+  }
+
+  const result = await createEmbedding(input);
+  return result?.embedding ?? null;
+}
+
+async function buildLlmAlert(input: {
+  message: string;
+  matchedKeywords: string[];
+  matchedEntities: Array<{ type: EntityType; value: string }>;
+  evidence: DemoPost[];
+  riskLabel: string;
+}) {
+  if (!isLlmConfigured()) {
+    return null;
+  }
+
+  const generated = await generateAlertWithLlm({
+    message: input.message,
+    matchedKeywords: input.matchedKeywords,
+    matchedEntities: input.matchedEntities.map((entity) => entity.value),
+    evidence: input.evidence.map((item) => ({
+      title: item.title,
+      source: `${item.source}/${item.board}`,
+      scamType: item.scamType,
+      snippet: item.content.slice(0, 240),
+    })),
+    riskLabel: input.riskLabel,
+  });
+
+  if (!generated?.summary || generated.actions.length === 0) {
+    return null;
+  }
+
+  return generated;
 }
