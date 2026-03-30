@@ -4,6 +4,7 @@ import {
   analyzeMessage,
   crawlLiveSources,
   getFeed,
+  getGraph,
   getSnapshot,
   verifySiteUrl,
 } from "./lib/scamEngine";
@@ -24,6 +25,10 @@ app.get("/api/snapshot", (_request, response) => {
 
 app.get("/api/feed", (_request, response) => {
   response.json(getFeed());
+});
+
+app.get("/api/graph", async (_request, response) => {
+  response.json(await getGraph());
 });
 
 app.post("/api/crawl", async (_request, response) => {

@@ -13,8 +13,7 @@ import type {
   AnalysisResponse,
   FeedResponse,
   FeedPost,
-  GraphEdge,
-  GraphNode,
+  GraphResponse,
   SiteVerificationResponse,
   SourceSnapshot,
 } from "./types";
@@ -28,6 +27,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<SourceSnapshot | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [feed, setFeed] = useState<FeedPost[]>([]);
+  const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [message, setMessage] = useState(sampleMessage);
   const [siteUrl, setSiteUrl] = useState(sampleSite);
   const [siteResult, setSiteResult] = useState<SiteVerificationResponse | null>(
@@ -47,6 +47,7 @@ function App() {
     await Promise.all([
       loadSnapshot(),
       loadFeed(),
+      loadGraph(),
       analyzeMessage(sampleMessage),
       verifySite(sampleSite),
     ]);
@@ -77,6 +78,16 @@ function App() {
     setFeed(data.posts);
   }
 
+  async function loadGraph() {
+    const response = await fetch("/api/graph");
+    if (!response.ok) {
+      throw new Error("無法取得圖譜資料。");
+    }
+
+    const data = (await response.json()) as GraphResponse;
+    setGraph(data);
+  }
+
   async function refreshSources() {
     setRefreshing(true);
     setError(null);
@@ -90,6 +101,7 @@ function App() {
       const data = (await response.json()) as SourceSnapshot;
       setSnapshot(data);
       await loadFeed();
+      await loadGraph();
       await analyzeMessage(message);
     } catch (refreshError) {
       setError(
@@ -174,8 +186,8 @@ function App() {
     await verifySite(siteUrl);
   }
 
-  const graphNodes: GraphNode[] = analysis?.knowledgeGraph.nodes ?? [];
-  const graphEdges: GraphEdge[] = analysis?.knowledgeGraph.edges ?? [];
+  const graphNodes = graph?.nodes ?? analysis?.knowledgeGraph.nodes ?? [];
+  const graphEdges = graph?.edges ?? analysis?.knowledgeGraph.edges ?? [];
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#25334d_0%,#15233a_40%,#0f1b2e_100%)] px-5 py-8 text-white sm:px-8 lg:px-10">
@@ -208,6 +220,10 @@ function App() {
                 <StatPill
                   icon={<SearchCheck className="h-4 w-4" />}
                   label={`${feed.length} 則可查看文章`}
+                />
+                <StatPill
+                  icon={<DatabaseZap className="h-4 w-4" />}
+                  label={`Graph: ${snapshot?.graphStore.provider ?? "memory"}`}
                 />
               </div>
             </div>
@@ -267,6 +283,10 @@ function App() {
                     ) : null}
                   </div>
                 ))}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/8 bg-slate-950/28 px-4 py-3 text-sm text-slate-200">
+                KG 儲存層：{snapshot?.graphStore.enabled ? `Neo4j (${snapshot.graphStore.database})` : "Memory fallback"}
               </div>
 
               {error ? (
@@ -519,6 +539,9 @@ function App() {
             <div className="mt-6">
               <KnowledgeGraphPanel nodes={graphNodes} edges={graphEdges} />
             </div>
+            <p className="mt-4 text-sm leading-7 text-slate-300/82">
+              目前圖譜資料來源：{graph?.provider === "neo4j" ? "Neo4j 即時查詢" : "記憶體 fallback"}。
+            </p>
           </div>
 
           <div className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(26,37,56,0.96)_0%,rgba(15,23,38,0.98)_100%)] p-6 shadow-[0_20px_50px_rgba(2,8,23,0.28)]">

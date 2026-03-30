@@ -1,4 +1,10 @@
 import { demoPosts, type DemoPost } from "../data/demoPosts";
+import {
+  getGraphFromNeo4j,
+  getNeo4jStatus,
+  isNeo4jEnabled,
+  syncPostsToNeo4j,
+} from "./neo4j";
 import { getRiskKeywords } from "./postUtils";
 import { crawlGoogleNewsPosts } from "../sources/googleNews";
 import { crawlPttPosts } from "../sources/ptt";
@@ -20,11 +26,33 @@ export type SnapshotResponse = {
     edges: number;
     keywords: number;
   };
+  graphStore: {
+    provider: "neo4j" | "memory";
+    enabled: boolean;
+    database: string;
+  };
   latestScripts: Array<{
     scamType: string;
     summary: string;
     count: number;
   }>;
+};
+
+export type GraphResponse = {
+  nodes: Array<{
+    id: string;
+    label: string;
+    type: string;
+    weight: number;
+  }>;
+  edges: Array<{
+    from: string;
+    to: string;
+    fromLabel: string;
+    toLabel: string;
+    relation: string;
+  }>;
+  provider: "neo4j" | "memory";
 };
 
 export type AnalysisResult = {
@@ -168,6 +196,10 @@ export async function crawlLiveSources() {
     sources: nextSources,
   };
 
+  if (isNeo4jEnabled()) {
+    await syncPostsToNeo4j(getAllPosts());
+  }
+
   return {
     posts: getAllPosts(),
     updatedAt,
@@ -177,6 +209,7 @@ export async function crawlLiveSources() {
 export function getSnapshot(): SnapshotResponse {
   const posts = getAllPosts();
   const graph = buildKnowledgeGraph(posts);
+  const neo4jStatus = getNeo4jStatus();
 
   return {
     sources: crawlState.sources.map((source) => ({
@@ -192,6 +225,11 @@ export function getSnapshot(): SnapshotResponse {
       nodes: graph.nodes.length,
       edges: graph.edges.length,
       keywords: keywords.length,
+    },
+    graphStore: {
+      provider: neo4jStatus.enabled ? "neo4j" : "memory",
+      enabled: neo4jStatus.enabled,
+      database: neo4jStatus.database,
     },
     latestScripts: buildLatestScripts(posts),
   };
@@ -297,6 +335,22 @@ export function analyzeMessage(message: string): AnalysisResult {
       matchedEntities,
       evidence: scoredEvidence.map((item) => item.post),
     }),
+  };
+}
+
+export async function getGraph(): Promise<GraphResponse> {
+  const neo4jGraph = await getGraphFromNeo4j(18);
+  if (neo4jGraph) {
+    return {
+      ...neo4jGraph,
+      provider: "neo4j",
+    };
+  }
+
+  const memoryGraph = buildKnowledgeGraph(getAllPosts());
+  return {
+    ...memoryGraph,
+    provider: "memory",
   };
 }
 

@@ -17,6 +17,7 @@
     "express": "^5.1.0",
     "fast-xml-parser": "^5.2.5",
     "lucide-react": "^0.542.0",
+    "neo4j-driver": "^6.0.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "vis-network": "^9.1.9"

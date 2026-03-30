@@ -15,6 +15,11 @@ export type SourceSnapshot = {
     edges: number;
     keywords: number;
   };
+  graphStore: {
+    provider: "neo4j" | "memory";
+    enabled: boolean;
+    database: string;
+  };
   latestScripts: LatestScript[];
 };
 
@@ -53,6 +58,12 @@ export type GraphEdge = {
   fromLabel: string;
   toLabel: string;
   relation: string;
+};
+
+export type GraphResponse = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  provider: "neo4j" | "memory";
 };
 
 export type AnalysisResponse = {
