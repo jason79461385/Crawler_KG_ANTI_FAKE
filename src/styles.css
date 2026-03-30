@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --surface: #3a4961;
+  --surface-strong: #33425b;
+  --page-bg: #14233a;
+  --accent: #39b9ff;
+  --text-soft: rgba(237, 243, 255, 0.86);
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  background-color: var(--page-bg);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: white;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(57, 185, 255, 0.35);
+}

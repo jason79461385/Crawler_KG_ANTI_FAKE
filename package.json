@@ -1,0 +1,37 @@
+{
+  "name": "scam-detection-feature-cards",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "node --import tsx server/index.ts",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "server": "node --import tsx server/index.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.2.5",
+    "lucide-react": "^0.542.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "vis-network": "^9.1.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.12",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.1",
+    "tailwindcss": "^4.1.12",
+    "typescript": "^5.9.2",
+    "tsx": "^4.20.5",
+    "vite": "^7.1.3"
+  }
+}
