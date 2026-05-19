@@ -3,3 +3,9 @@ dist
 .DS_Store
 *.tsbuildinfo
 .env
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+data/cache/
+data/neo4j/

@@ -1,6 +1,6 @@
 export type DemoPost = {
   id: string;
-  source: "PTT" | "Dcard" | "Google News";
+  source: "PTT" | "Dcard" | "Google News" | "165 全民防騙網" | "User Report";
   board: string;
   title: string;
   content: string;

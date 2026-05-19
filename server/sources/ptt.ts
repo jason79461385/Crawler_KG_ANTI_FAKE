@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { filterScamCandidate } from "../lib/contentFilter";
 import { normalizePost } from "../lib/postUtils";
 
 const USER_AGENT =
@@ -126,6 +127,12 @@ async function fetchArticle(url: string, board: string) {
   const content = mainContent.text().split("--")[0]?.replace(/\s+/g, " ").trim();
 
   if (!normalizedTitle || !content) {
+    return null;
+  }
+
+  const verdict = filterScamCandidate({ title: normalizedTitle, content });
+  if (!verdict.accept) {
+    console.log(`[PTT] filtered out: ${verdict.reason} | ${normalizedTitle.slice(0, 50)}`);
     return null;
   }
 

@@ -68,7 +68,7 @@ export async function generateAlertWithLlm(input: {
   }
 
   const systemPrompt =
-    "你是一個台灣防詐助理。請根據提供的用戶訊息、關鍵字、實體與相似案例，生成簡短、具體、可操作的中文警示摘要與三點處置建議。輸出 JSON，格式為 {\"summary\": string, \"actions\": string[]}。";
+    "你是一個台灣防詐助理。請根據提供的用戶訊息、關鍵字、實體與相似案例，生成簡短、具體、可操作的中文警示摘要與三點處置建議。`summary` 與 `actions` 內的字串都允許並建議使用 Markdown 語法(例如 **粗體**、`code`、條列、引用等)以增加可讀性。輸出 JSON，格式為 {\"summary\": string, \"actions\": string[]}。";
 
   const userPrompt = JSON.stringify(input, null, 2);
 
@@ -120,6 +120,63 @@ export async function generateAlertWithLlm(input: {
     summary: parsed.summary ?? "",
     actions: Array.isArray(parsed.actions) ? parsed.actions : [],
   };
+}
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export async function chatWithLlm(
+  messages: ChatMessage[],
+  context?: { evidence?: string },
+): Promise<string | null> {
+  if (!isLlmConfigured()) {
+    return null;
+  }
+
+  const systemPrompt = [
+    "你是一個台灣防詐專家助理。",
+    "請以繁體中文回覆。",
+    "回覆務必使用 Markdown 語法,適度使用 **粗體**、`程式碼`、條列、表格、引用區塊與標題。",
+    "回覆要簡短、條理清晰、可操作,不要重複問題本身。",
+    "若使用者提到的訊息或網址有疑似詐騙特徵,優先指出風險與處置步驟。",
+    context?.evidence ? `參考案例(僅供你判斷,不要逐字搬運):\n${context.evidence}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { url, headers } = buildApiRequest(
+    workerApiUrl!,
+    "chat/completions",
+    workerApiKey,
+  );
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify({
+      model: workerModelName,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages,
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`LLM chat API failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  return data.choices?.[0]?.message?.content ?? null;
 }
 
 export function cosineSimilarity(left: number[], right: number[]) {

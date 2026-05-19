@@ -51,6 +51,7 @@ export type GraphNode = {
   label: string;
   type: string;
   weight: number;
+  group: string;
 };
 
 export type GraphEdge = {
@@ -65,6 +66,11 @@ export type GraphResponse = {
   nodes: GraphNode[];
   edges: GraphEdge[];
   provider: "neo4j" | "memory";
+  stats: {
+    totalNodes: number;
+    totalEdges: number;
+    typeBreakdown: Record<string, number>;
+  };
 };
 
 export type AnalysisResponse = {
@@ -99,6 +105,10 @@ export type FeedPost = {
 };
 
 export type FeedResponse = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
   posts: FeedPost[];
 };
 
@@ -115,5 +125,28 @@ export type SiteVerificationResponse = {
     rawIpHost: boolean;
     suspiciousKeywords: string[];
     domainAgeHint: string;
+    safeBrowsing: Array<{ threatType: string; platformType: string }>;
+    phishingFeed: { matched: boolean; source?: string };
+    ssrfBlocked: boolean;
   };
+};
+
+export type UserReportRecord = {
+  id: string;
+  message: string;
+  reporterHint?: string;
+  suspectedUrl?: string;
+  suspectedChannel?: string;
+  riskLevel?: string;
+  riskScore?: number;
+  matchedKeywords: string[];
+  createdAt: string;
+  status: "pending" | "reviewed" | "ignored";
+};
+
+export type ChatRole = "user" | "assistant";
+
+export type ChatMessage = {
+  role: ChatRole;
+  content: string;
 };

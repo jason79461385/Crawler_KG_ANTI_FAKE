@@ -7,34 +7,72 @@ import {
   getFeed,
   getGraph,
   getSnapshot,
+  purgeFilteredPosts,
   verifySiteUrl,
 } from "./lib/scamEngine";
+import { chatWithLlm, isLlmConfigured } from "./lib/llm";
+import {
+  getRecentReports,
+  insertReport,
+  type UserReport,
+} from "./lib/db";
+import {
+  getThreatIntelStatus,
+  refreshPhishFeeds,
+} from "./lib/threatIntel";
+import { probeNeo4jOnStartup } from "./lib/neo4j";
 
 const app = express();
 const port = 8787;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "200kb" }));
 
 app.get("/api/health", (_request, response) => {
-  response.json({ ok: true });
+  response.json({ ok: true, threatIntel: getThreatIntelStatus() });
 });
 
 app.get("/api/snapshot", (_request, response) => {
   response.json(getSnapshot());
 });
 
-app.get("/api/feed", (_request, response) => {
-  response.json(getFeed());
+app.get("/api/feed", (request, response) => {
+  const page = Math.max(1, Number(request.query.page) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number(request.query.pageSize) || 12));
+  response.json(getFeed(page, pageSize));
 });
 
-app.get("/api/graph", async (_request, response) => {
-  response.json(await getGraph());
+app.get("/api/graph", async (request, response) => {
+  const limit = Math.min(200, Math.max(8, Number(request.query.limit) || 80));
+  const result = await getGraph(limit);
+  const { etag, ...payload } = result;
+
+  response.setHeader("ETag", etag);
+  response.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+
+  if (request.headers["if-none-match"] === etag) {
+    response.status(304).end();
+    return;
+  }
+
+  response.json(payload);
 });
 
 app.post("/api/crawl", async (_request, response) => {
   await crawlLiveSources();
+  void refreshPhishFeeds().catch((error) => {
+    console.error("Phish feed refresh failed:", error);
+  });
   response.json(getSnapshot());
+});
+
+app.post("/api/purge-noise", (_request, response) => {
+  const result = purgeFilteredPosts();
+  response.json({
+    removed: result.removed,
+    samples: result.samples,
+    snapshot: getSnapshot(),
+  });
 });
 
 app.post("/api/analyze", async (request, response) => {
@@ -66,10 +104,152 @@ app.post("/api/verify-site", async (request, response) => {
   }
 });
 
+app.post("/api/report", async (request, response) => {
+  const body = request.body ?? {};
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+
+  if (!message) {
+    response.status(400).json({ error: "message is required" });
+    return;
+  }
+
+  if (message.length > 4000) {
+    response.status(400).json({ error: "message too long" });
+    return;
+  }
+
+  let analysis: Awaited<ReturnType<typeof analyzeMessage>> | null = null;
+  try {
+    analysis = await analyzeMessage(message);
+  } catch {
+    /* swallow analysis errors; report still saved */
+  }
+
+  const report: UserReport = {
+    id: `report-${Date.now()}-${Math.floor(Math.random() * 10_000).toString(16)}`,
+    message,
+    reporterHint: typeof body.reporterHint === "string" ? body.reporterHint.slice(0, 200) : undefined,
+    suspectedUrl: typeof body.suspectedUrl === "string" ? body.suspectedUrl.slice(0, 500) : undefined,
+    suspectedChannel: typeof body.suspectedChannel === "string" ? body.suspectedChannel.slice(0, 80) : undefined,
+    riskLevel: analysis?.risk.level,
+    riskScore: analysis?.risk.score,
+    matchedKeywords: analysis?.matches.keywords ?? [],
+    createdAt: new Date().toISOString(),
+    status: "pending",
+  };
+
+  insertReport(report);
+  response.json({ report, analysis });
+});
+
+app.get("/api/reports", (request, response) => {
+  const limit = Math.min(100, Math.max(1, Number(request.query.limit) || 30));
+  response.json({ reports: getRecentReports(limit) });
+});
+
+app.post("/api/chat", async (request, response) => {
+  const body = request.body ?? {};
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+
+  const cleaned = messages
+    .filter(
+      (m: unknown): m is { role: string; content: string } =>
+        Boolean(m) &&
+        typeof (m as { role?: unknown }).role === "string" &&
+        typeof (m as { content?: unknown }).content === "string",
+    )
+    .filter((m: { role: string }) => m.role === "user" || m.role === "assistant")
+    .slice(-12);
+
+  if (cleaned.length === 0) {
+    response.status(400).json({ error: "messages required" });
+    return;
+  }
+
+  const lastUser = [...cleaned].reverse().find((m) => m.role === "user");
+  let evidenceContext = "";
+
+  if (lastUser) {
+    try {
+      const analysis = await analyzeMessage(lastUser.content);
+      evidenceContext = analysis.evidence
+        .slice(0, 3)
+        .map(
+          (item, index) =>
+            `[${index + 1}] (${item.scamType}/${item.source}) ${item.title} — ${item.snippet.slice(0, 160)}`,
+        )
+        .join("\n");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!isLlmConfigured()) {
+    response.json({
+      content: buildLocalMarkdownReply(lastUser?.content ?? "", evidenceContext),
+      mode: "local",
+    });
+    return;
+  }
+
+  try {
+    const reply = await chatWithLlm(
+      cleaned.map((m: { role: string; content: string }) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+      { evidence: evidenceContext },
+    );
+    response.json({
+      content: reply ?? buildLocalMarkdownReply(lastUser?.content ?? "", evidenceContext),
+      mode: reply ? "llm" : "local",
+    });
+  } catch (error) {
+    response.json({
+      content: buildLocalMarkdownReply(lastUser?.content ?? "", evidenceContext),
+      mode: "local",
+      error: error instanceof Error ? error.message : "chat failed",
+    });
+  }
+});
+
+function buildLocalMarkdownReply(userInput: string, evidenceContext: string) {
+  const trimmed = userInput.trim();
+  return [
+    `### 🛡️ 防詐快速建議`,
+    "",
+    trimmed
+      ? `針對你提到的「${trimmed.slice(0, 60)}${trimmed.length > 60 ? "…" : ""}」,以下是初步觀察:`
+      : "請再描述具體訊息或網址,我會給你更精準的建議。",
+    "",
+    "**請務必檢查以下三件事:**",
+    "",
+    "1. 對方是否要求你 **匯款到陌生帳戶** 或提供 OTP / 驗證碼?",
+    "2. 對方是否堅持改用 **LINE / Telegram 等私下管道**?",
+    "3. 是否有 **保證獲利 / 解除分期 / 安全帳戶** 等高風險話術?",
+    "",
+    evidenceContext
+      ? `> 系統比對到的相似案例:\n>\n> ${evidenceContext.replace(/\n/g, "\n> ")}`
+      : "> 目前尚未比對到強相似案例,但仍建議撥打 **165 反詐騙專線** 進一步確認。",
+    "",
+    "---",
+    "_本回覆由本地規則生成。設定 `WORKER_API_URL` / `WORKER_MODEL_NAME` 後可切換為 LLM 真生成模式。_",
+  ].join("\n");
+}
+
 app.listen(port, () => {
   console.log(`Scam demo API listening on http://localhost:${port}`);
 });
 
+// 開機階段背景跑這三件事,不阻擋 listen
+void probeNeo4jOnStartup().catch(() => {
+  /* probe failure is logged inside */
+});
+
 void crawlLiveSources().catch((error) => {
   console.error("Initial live crawl failed:", error);
+});
+
+void refreshPhishFeeds(true).catch((error) => {
+  console.error("Initial phish feed refresh failed:", error);
 });

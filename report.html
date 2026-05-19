@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scam Intel Console — 作品報告</title>
+<style>
+  :root {
+    --bg: #050b1a;
+    --bg-soft: #0b162b;
+    --panel: #0f1c33;
+    --panel-2: #14233f;
+    --border: #1f3354;
+    --text: #e6edf7;
+    --text-dim: #9fb0c9;
+    --muted: #6b7e9b;
+    --accent: #38bdf8;
+    --accent-2: #22d3ee;
+    --orange: #fb923c;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #f87171;
+    --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(56,189,248,0.12), transparent 60%),
+      radial-gradient(900px 500px at 0% 10%, rgba(34,211,238,0.10), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+      "Microsoft JhengHei", "Noto Sans TC", Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 32px 96px;
+  }
+  header.hero {
+    background: linear-gradient(135deg, rgba(56,189,248,0.18), rgba(34,211,238,0.08));
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 44px 40px;
+    box-shadow: var(--shadow);
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    color: var(--accent-2);
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 38px;
+    margin: 0 0 12px;
+    background: linear-gradient(135deg, #ffffff, #93c5fd);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.2;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 17px;
+    max-width: 720px;
+    margin: 0 0 24px;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .meta b { color: var(--text-dim); font-weight: 600; }
+
+  section {
+    margin-top: 40px;
+  }
+  h2 {
+    font-size: 24px;
+    margin: 0 0 18px;
+    padding-left: 14px;
+    border-left: 4px solid var(--accent);
+    line-height: 1.3;
+  }
+  h3 {
+    font-size: 17px;
+    margin: 24px 0 10px;
+    color: var(--accent-2);
+  }
+  p { margin: 10px 0; color: var(--text-dim); }
+  p strong, li strong { color: var(--text); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 22px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .card:hover { transform: translateY(-2px); border-color: rgba(56,189,248,0.5); }
+  .card h4 {
+    margin: 0 0 8px;
+    color: var(--accent-2);
+    font-size: 15px;
+    letter-spacing: 0.04em;
+  }
+  .card p { margin: 0; color: var(--text-dim); font-size: 14px; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin: 18px 0 8px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .stat .v {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent-2);
+    line-height: 1.1;
+  }
+  .stat .k {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  thead th {
+    background: var(--panel-2);
+    color: var(--accent-2);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(56,189,248,0.05); }
+
+  .pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .pill.ok    { background: rgba(74,222,128,0.15); color: var(--green); }
+  .pill.warn  { background: rgba(250,204,21,0.15); color: var(--yellow); }
+  .pill.fail  { background: rgba(248,113,113,0.15); color: var(--red); }
+  .pill.info  { background: rgba(56,189,248,0.15); color: var(--accent); }
+  .pill.muted { background: rgba(155,170,196,0.12); color: var(--text-dim); }
+
+  pre {
+    background: #061021;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    color: #cbd5e1;
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  code {
+    background: rgba(56,189,248,0.10);
+    color: #bae6fd;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+    font-size: 13px;
+  }
+  pre code { background: none; padding: 0; color: inherit; font-size: 13px; }
+
+  ul, ol { padding-left: 22px; color: var(--text-dim); }
+  ul li, ol li { margin: 6px 0; }
+
+  .callout {
+    background: linear-gradient(135deg, rgba(56,189,248,0.10), rgba(34,211,238,0.04));
+    border: 1px solid rgba(56,189,248,0.30);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    color: var(--text);
+  }
+  .callout strong { color: var(--accent-2); }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 820px) {
+    .two-col { grid-template-columns: 1fr; }
+    .wrap { padding: 32px 18px 64px; }
+    h1 { font-size: 28px; }
+    header.hero { padding: 28px 22px; }
+  }
+
+  .ascii {
+    background: #061021;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #93c5fd;
+    white-space: pre;
+  }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Final Project Report · 防詐情資控制台</div>
+  <h1>Scam Intel Console</h1>
+  <p class="subtitle">
+    一個聚焦於台灣常見詐騙情境的防詐 demo,整合「多來源即時爬蟲 ▸ SQLite 持久化 ▸ Neo4j 知識圖譜 ▸ 規則 + Embedding + LLM 混合分析 ▸ SSRF 防護網址驗證 ▸ Markdown 對話助手」六大子系統,在單一可執行的 React + Express 全端原型內呈現完整資料流。
+  </p>
+  <div class="meta">
+    <span><b>專案類型</b> · 全端 Web Prototype</span>
+    <span><b>技術棧</b> · React 19 · Vite 7 · Express 5 · TypeScript · Neo4j · SQLite</span>
+    <span><b>報告日期</b> · 2026-05-19</span>
+    <span><b>版本</b> · v0.1.0</span>
+  </div>
+</header>
+
+<section>
+  <h2>一、專案動機</h2>
+  <p>
+    詐騙手法在台灣演化極快,從 LINE 假投資、假交友、解除分期、165 簡訊、釣魚連結,到結合社交工程的多階段攻擊。
+    一般使用者要在訊息瞬間做出「這是不是詐騙」判斷,缺乏資料支援與即時佐證。
+  </p>
+  <p>
+    本作品目標是把<strong>多元防詐情資</strong>(官方 165 案例、社群 PTT、Google News、PhishTank/OpenPhish 釣魚 feed)整合進一個<strong>可互動的控制台</strong>,讓使用者:
+  </p>
+  <ul>
+    <li>看見<strong>即時案例知識圖譜</strong>(誰、用什麼平台、騙什麼)</li>
+    <li>輸入可疑訊息,得到 <strong>混合式風險評分</strong> + LLM 解釋</li>
+    <li>驗證可疑連結是否在<strong>已知釣魚清單</strong>或<strong>啟發式高風險</strong>特徵內</li>
+    <li>透過<strong>浮動聊天助手</strong>用自然語言互動,回覆完全以 Markdown 排版</li>
+    <li><strong>主動回報</strong>遭遇,讓系統長期累積本地差異化資料</li>
+  </ul>
+</section>
+
+<section>
+  <h2>二、系統能力一覽</h2>
+  <div class="stat-grid">
+    <div class="stat"><div class="v">5</div><div class="k">資料來源</div></div>
+    <div class="stat"><div class="v">7</div><div class="k">REST API 端點</div></div>
+    <div class="stat"><div class="v">5</div><div class="k">前端分頁</div></div>
+    <div class="stat"><div class="v">3-層</div><div class="k">混合風險評分</div></div>
+    <div class="stat"><div class="v">8+</div><div class="k">SSRF 阻擋規則</div></div>
+    <div class="stat"><div class="v">300+</div><div class="k">釣魚 URL 已索引</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>三、系統架構</h2>
+  <div class="ascii">┌─────────────────────────────────────────────────────────────────┐
+│  瀏覽器  React 19 + Vite 7 + Tailwind 4                          │
+│  ┌──────────┬──────────┬──────────┬──────────┬──────────┐        │
+│  │Dashboard │  Cases   │  Verify  │  Graph   │  Report  │ + 浮動 │
+│  │  (主頁)  │ (分頁)   │ (SSRF)   │(vis-net) │(使用者)  │ Chat   │
+│  └──────────┴──────────┴──────────┴──────────┴──────────┘        │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ /api/* (Vite proxy → :8787)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Express 5 API   (server/index.ts)                              │
+│  health · snapshot · feed · graph · analyze · verify-site       │
+│  · chat · report · purge-noise                                  │
+└──────────┬────────────────┬────────────────┬────────────────────┘
+           │                │                │
+           ▼                ▼                ▼
+┌──────────────────┐  ┌──────────────┐  ┌──────────────────────┐
+│  scamEngine.ts   │  │  safeFetch   │  │  threatIntel.ts      │
+│  • crawl orchest │  │  • SSRF 防護 │  │  • PhishTank         │
+│  • analyze 評分  │  │  • timeout   │  │  • OpenPhish         │
+│  • graph 快取    │  │  • maxBytes  │  │  • Google SafeBrowse │
+└──┬────────┬──────┘  └──────────────┘  └──────────────────────┘
+   │        │
+   ▼        ▼
+┌────────┐ ┌──────────────────────────────┐
+│ SQLite │ │  Neo4j 5.26 (Docker Compose) │
+│ (WAL)  │ │  MERGE + lastSeenAt 增量同步 │
+└────────┘ └──────────────────────────────┘
+   ▲
+   │  外部來源(graceful fallback,單一失敗不影響整體)
+   │
+   ├── PTT 5 個看板 (cheerio)
+   ├── Google News RSS (fast-xml-parser)
+   ├── 165 全民防騙網 (CIB_DWS_API)
+   ├── OpenPhish / PhishTank feeds
+   └── LLM (Ollama qwen3.5:9b @ NCU) · Embedding (multilingual-e5-large)
+</div>
+</section>
+
+<section>
+  <h2>四、技術亮點</h2>
+  <div class="grid">
+    <div class="card">
+      <h4>① 全鏈路 Graceful Fallback</h4>
+      <p>Neo4j / LLM / Embedding / 任一爬蟲故障,系統都不會炸 — <code>safeRun</code> + <code>is*Configured()</code> 把外部依賴包成可選層,單來源失敗只標記 <code>live:false</code>。</p>
+    </div>
+    <div class="card">
+      <h4>② 混合風險評分</h4>
+      <p>規則式關鍵字 × 實體比對 × <strong>Embedding 餘弦相似度 (×42 權重)</strong> × LLM JSON 輸出,四層加總並 clamp 至 0-96。任一層失效系統仍可運作。</p>
+    </div>
+    <div class="card">
+      <h4>③ SSRF 多層防護</h4>
+      <p>阻擋 loopback / private / link-local / CGNAT / ULA IPv6 / metadata.google.internal,並做 <strong>DNS rebinding</strong> 後解析驗證,加 timeout、maxBytes、maxRedirects 三道閘。</p>
+    </div>
+    <div class="card">
+      <h4>④ Neo4j 增量 MERGE</h4>
+      <p>從原本「<code>MATCH (n) DETACH DELETE n</code> 全砍重建」改成 <code>MERGE</code> + <code>lastSeenAt</code> 標記 + 過期清理,並加 60 秒 retry backoff 避免單次失敗永久禁用。</p>
+    </div>
+    <div class="card">
+      <h4>⑤ 知識圖譜三層快取</h4>
+      <p>伺服器端 in-memory cache + ETag/Cache-Control + 前端 <code>SnapshotProvider</code> prefetch,讓首次 <code>/graph</code> 從 6.7s → &lt; 200ms。</p>
+    </div>
+    <div class="card">
+      <h4>⑥ 165 SPA 反向工程</h4>
+      <p>165 全民防騙網是 Angular SPA,純 HTML 抓不到內容。逆向 JS bundle 找到真實 API <code>CIB_DWS_API/api/CaseSummary/GetCaseSummaryList</code>,成功抓到 160K+ 案例。</p>
+    </div>
+    <div class="card">
+      <h4>⑦ 內容過濾器</h4>
+      <p>BLOCK / ALLOW 雙清單區分「政治新聞名字含詐騙」vs「真實案例」,避免 PSA、政黨議題、統計排行汙染 KG 與分析語料。</p>
+    </div>
+    <div class="card">
+      <h4>⑧ Docker Compose 一鍵起 Neo4j</h4>
+      <p><code>npm run dev:full</code> 會跑 <code>db:up</code> 自動偵測 Docker daemon、port 衝突、容器是否已起,再等 bolt + HTTP 7474 雙就緒。冷啟動約 8 秒,熱啟動 ~1.3 秒。</p>
+    </div>
+    <div class="card">
+      <h4>⑨ 浮動 Markdown Chat Widget</h4>
+      <p>右下角圓形入口,<code>localStorage</code> 持久化對話歷史,<code>react-markdown + remark-gfm</code> 渲染標題 / 表格 / 條列 / 程式碼 / 連結。LLM 模式與本地規則模式自動切換。</p>
+    </div>
+    <div class="card">
+      <h4>⑩ 熱過濾的 KG 互動</h4>
+      <p>類別 chip 切換採 vis-network <code>DataSet.update</code> + <code>hidden</code> flag,新增類別後節點立即出現/隱藏,不需刷新頁面;physics 短暫重啟 700ms 重新排版後自動關閉。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>五、API 規格</h2>
+  <table>
+    <thead>
+      <tr><th>Method</th><th>路徑</th><th>用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/health</code></td><td>健檢,含 threatIntel / Neo4j 狀態</td></tr>
+      <tr><td>GET</td><td><code>/api/snapshot</code></td><td>多來源 + DB stats + scamType 摘要</td></tr>
+      <tr><td>GET</td><td><code>/api/feed?page=&pageSize=</code></td><td>分頁案例清單</td></tr>
+      <tr><td>GET</td><td><code>/api/graph</code></td><td>KG 節點與邊,優先 Neo4j → fallback in-memory,帶 ETag</td></tr>
+      <tr><td>POST</td><td><code>/api/crawl</code></td><td>觸發即時同步</td></tr>
+      <tr><td>POST</td><td><code>/api/analyze</code></td><td>對話風險分析(規則 + 實體 + embedding + LLM)</td></tr>
+      <tr><td>POST</td><td><code>/api/verify-site</code></td><td>網址啟發式風險評估(含 SSRF 防護)</td></tr>
+      <tr><td>POST</td><td><code>/api/chat</code></td><td>浮動 ChatWidget 後端,LLM 強制輸出 Markdown</td></tr>
+      <tr><td>POST</td><td><code>/api/report</code></td><td>使用者回報 + 自動分析,寫入 SQLite</td></tr>
+      <tr><td>GET</td><td><code>/api/reports</code></td><td>近期使用者回報清單</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>六、風險評分核心公式</h2>
+  <pre><code>score = min(96,
+  10
+  + matchedKeywords.length * 8
+  + matchedEntities.length * 10
+  + scoredEvidence.length * 14
+)
+
+# 單篇 evidence 分數
+evidenceScore =
+  overlapEntities * 24
+  + keywordHits * 14
+  + cosineSimilarity * 42   # 僅當 embedding API 已設定
+
+level: score >= 70 → high
+       score >= 40 → medium
+       otherwise   → low</code></pre>
+  <div class="callout">
+    <strong>常數調諧備註:</strong> <code>24 / 14 / 42 / 8 / 10 / 14 / 70 / 40 / 96</code> 全為人工 tune,改一個權重需連帶檢視其他,避免區間漂移。
+  </div>
+</section>
+
+<section>
+  <h2>七、資料來源整合</h2>
+  <table>
+    <thead>
+      <tr><th>來源</th><th>類型</th><th>取得方式</th><th>狀態</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>PTT(Gossiping / e-shopping / part-time / Salary / MobilePay)</td><td>社群</td><td><code>cheerio</code> HTML 爬蟲</td><td><span class="pill ok">即時運作</span></td></tr>
+      <tr><td>Google News RSS</td><td>媒體</td><td><code>fast-xml-parser</code></td><td><span class="pill ok">即時運作</span></td></tr>
+      <tr><td>165 全民防騙網</td><td>官方</td><td>SPA 反向工程取得 <code>CIB_DWS_API</code></td><td><span class="pill ok">真實 API · 160K+</span></td></tr>
+      <tr><td>OpenPhish feed</td><td>釣魚情資</td><td>純文字 URL feed</td><td><span class="pill ok">300 URL 已索引</span></td></tr>
+      <tr><td>PhishTank</td><td>釣魚情資</td><td>需 API key</td><td><span class="pill warn">已實作,待 key</span></td></tr>
+      <tr><td>Google Safe Browsing v4</td><td>釣魚情資</td><td>OpenAI 風格 lookup</td><td><span class="pill warn">已實作,待 key</span></td></tr>
+      <tr><td>使用者回報</td><td>自有</td><td>前端表單 → SQLite</td><td><span class="pill ok">完成</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>八、測試結果摘要</h2>
+  <table>
+    <thead>
+      <tr><th>項目</th><th>結果</th><th>備註</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>前端 TypeScript 型別檢查</td><td><span class="pill ok">PASS</span></td><td><code>tsc --noEmit -p tsconfig.app.json</code></td></tr>
+      <tr><td>後端 TypeScript 型別檢查</td><td><span class="pill ok">PASS</span></td><td><code>tsc --noEmit -p tsconfig.server.json</code></td></tr>
+      <tr><td>Production build</td><td><span class="pill ok">PASS</span></td><td>1946 modules · 1.1MB JS · 38KB CSS</td></tr>
+      <tr><td><code>POST /api/analyze</code> 假投資訊息</td><td><span class="pill ok">PASS</span></td><td>score=96 · level=high · 5 keywords matched</td></tr>
+      <tr><td><code>POST /api/verify-site</code> 釣魚 .xyz</td><td><span class="pill ok">PASS</span></td><td>verdict=danger · score=84</td></tr>
+      <tr><td>SSRF 阻擋 127.0.0.1 / 169.254.169.254 / localhost</td><td><span class="pill ok">PASS</span></td><td>ssrfBlocked=true · 三種情境皆擋</td></tr>
+      <tr><td>SQLite 重啟資料保留</td><td><span class="pill ok">PASS</span></td><td>16 posts + 1 report 重啟後完整</td></tr>
+      <tr><td>Neo4j MERGE 增量同步</td><td><span class="pill ok">PASS</span></td><td>移除全砍策略 · 加 7 天 stale 清理</td></tr>
+      <tr><td>LLM Markdown 輸出渲染</td><td><span class="pill ok">PASS</span></td><td>含標題 / 條列 / 表格 / 連結 / 警告 emoji</td></tr>
+      <tr><td>KG 熱載過濾(無刷新)</td><td><span class="pill ok">PASS</span></td><td>chip 切換即時生效 · 700ms 重新排版</td></tr>
+      <tr><td>165 案例去重(URL hash)</td><td><span class="pill ok">PASS</span></td><td>修為 <code>case-detail/{Id}</code> 避免折疊</td></tr>
+      <tr><td>政治 / PSA 新聞過濾</td><td><span class="pill ok">PASS</span></td><td>BLOCK / ALLOW 雙清單去除約 20+ 噪聲</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>九、開發環境與啟動</h2>
+  <div class="two-col">
+    <div>
+      <h3>啟動指令</h3>
+      <pre><code># 完整啟動(自動帶起 Neo4j Docker)
+npm run dev:full
+
+# 拆開跑
+npm run dev:server  # Express @ 8787
+npm run dev:client  # Vite @ 5173
+
+# 型別檢查
+npx tsc --noEmit -p tsconfig.app.json
+npx tsc --noEmit -p tsconfig.server.json
+
+# 容器管理
+npm run db:up    # 智慧啟動 Neo4j
+npm run db:logs  # 查 log
+npm run db:reset # 完整重置</code></pre>
+    </div>
+    <div>
+      <h3>關鍵環境變數(全部可選)</h3>
+      <pre><code># Neo4j
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASS=password123
+NEO4J_STALE_HOURS=168
+
+# LLM(OpenAI 相容)
+WORKER_API_URL=...
+WORKER_MODEL_NAME=qwen3.5:9b
+WORKER_API_KEY=...
+
+# Embedding
+EMBEDDING_API_URL=...
+EMBEDDING_MODEL_NAME=multilingual-e5-large
+
+# 威脅情資
+GOOGLE_SAFE_BROWSING_KEY=...
+PHISHTANK_FEED_URL=...
+OPENPHISH_FEED_URL=...</code></pre>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>十、檔案結構速覽</h2>
+  <pre><code>.
+├── docker-compose.yml          # Neo4j 5.26 community + healthcheck
+├── scripts/db-up.ts            # 智慧啟動腳本
+├── server/
+│   ├── index.ts                # Express app + 10 個 API 端點
+│   ├── data/demoPosts.ts       # Fallback 樣本資料
+│   ├── lib/
+│   │   ├── scamEngine.ts       # 核心 orchestrator
+│   │   ├── db.ts               # SQLite (better-sqlite3, WAL)
+│   │   ├── neo4j.ts            # MERGE 增量同步 + retry backoff
+│   │   ├── llm.ts              # OpenAI 相容 LLM / Embedding client
+│   │   ├── safeFetch.ts        # SSRF 防護封裝
+│   │   ├── threatIntel.ts      # PhishTank / OpenPhish / SafeBrowsing
+│   │   ├── contentFilter.ts    # BLOCK/ALLOW 雙清單
+│   │   └── postUtils.ts        # 關鍵字 / 實體規則
+│   └── sources/
+│       ├── ptt.ts              # PTT 5 板爬蟲
+│       ├── googleNews.ts       # Google News RSS
+│       └── dashboard165.ts     # 165 真實 API
+└── src/
+    ├── main.tsx                # Router 進入點
+    ├── api/client.ts           # Fetch 封裝
+    ├── context/                # SnapshotProvider(三層快取)
+    ├── components/
+    │   ├── Layout.tsx          # 5 頁 NavLink + ChatWidget
+    │   ├── KnowledgeGraphPanel.tsx  # vis-network + 熱過濾
+    │   ├── ChatWidget.tsx      # 浮動圓形入口 + Markdown
+    │   └── Markdown.tsx
+    └── pages/
+        ├── DashboardPage.tsx
+        ├── CasesPage.tsx
+        ├── VerifyPage.tsx
+        ├── GraphPage.tsx
+        └── ReportPage.tsx</code></pre>
+</section>
+
+<section>
+  <h2>十一、未來工作</h2>
+  <table>
+    <thead><tr><th>優先</th><th>項目</th><th>說明</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill info">P1</span></td><td>vitest 單元測試</td><td>對 <code>analyzeMessage</code> / <code>assertSafeUrl</code> / <code>verifySiteUrl</code> 寫測試,鎖住風險權重行為</td></tr>
+      <tr><td><span class="pill info">P1</span></td><td>規則 / 關鍵字外部化</td><td>將 <code>postUtils.ts</code> 的 hardcode 規則抽到 JSON / YAML,支援熱重載</td></tr>
+      <tr><td><span class="pill info">P1</span></td><td>結構化 logging</td><td>導入 <code>pino</code>,記錄 crawl / analyze / LLM latency 與失敗率</td></tr>
+      <tr><td><span class="pill muted">P2</span></td><td>排程器</td><td><code>node-cron</code> 定時增量爬,而非只在啟動時跑一次</td></tr>
+      <tr><td><span class="pill muted">P2</span></td><td>Dynamic import bundle 拆分</td><td>vis-network / react-markdown 改 lazy load,首頁 bundle 從 1.1MB 縮減</td></tr>
+      <tr><td><span class="pill muted">P2</span></td><td>Anthropic prompt caching</td><td>把 system prompt + evidence block 設為 cache breakpoint,降低 LLM 成本</td></tr>
+      <tr><td><span class="pill muted">P3</span></td><td>使用者回報審核流</td><td>目前回報直接寫入,可加 moderation queue 防止汙染</td></tr>
+      <tr><td><span class="pill muted">P3</span></td><td>觀測儀表板</td><td>Grafana / Prometheus 接 backend 指標</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>十二、結語</h2>
+  <p>
+    本作品在 prototype 階段以「完整資料流」為核心目標 ——
+    從多元爬蟲、SQLite 持久化、Neo4j 增量同步、SSRF 防護、混合風險評分、浮動 Markdown 對話,到熱過濾知識圖譜,
+    每一層都做到「外部依賴可選 + 任一失敗 graceful 降級」的工程紀律。
+  </p>
+  <p>
+    要走向 production,下一階段最重要的是:
+    <strong>(1)</strong> 把規則 / 關鍵字外部化讓非工程師也能維護;
+    <strong>(2)</strong> 持續累積使用者回報,讓 embedding 檢索的語料規模從現在的 ~30 篇成長到 1000+ 級別;
+    <strong>(3)</strong> 把 165 / SafeBrowsing / PhishTank 等官方來源轉成 production feed,
+    搭配 prompt caching 把 LLM 成本壓低,讓系統真的可以開放給一般使用者每日使用。
+  </p>
+</section>
+
+<footer>
+  Scam Intel Console · Final Project Report · 2026-05-19<br/>
+  Repository: <a href="https://github.com/jason79461385/Crawler_KG_ANTI_FAKE">github.com/jason79461385/Crawler_KG_ANTI_FAKE</a>
+</footer>
+
+</div>
+</body>
+</html>

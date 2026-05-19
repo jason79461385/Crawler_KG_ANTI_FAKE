@@ -7,11 +7,17 @@
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite",
     "dev:server": "node --import tsx server/index.ts",
+    "dev:full": "npm run db:up && npm run dev",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "server": "node --import tsx server/index.ts"
+    "server": "node --import tsx server/index.ts",
+    "db:up": "node --import tsx scripts/db-up.ts",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f neo4j",
+    "db:reset": "docker compose down -v && rm -rf data/neo4j && docker compose up -d"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -21,10 +27,14 @@
     "neo4j-driver": "^6.0.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.15.0",
+    "remark-gfm": "^4.0.1",
     "vis-network": "^9.1.9"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.12",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/react": "^19.1.10",
@@ -32,8 +42,8 @@
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.1",
     "tailwindcss": "^4.1.12",
-    "typescript": "^5.9.2",
     "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
     "vite": "^7.1.3"
   }
 }

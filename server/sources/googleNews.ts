@@ -1,4 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
+import { filterScamCandidate } from "../lib/contentFilter";
 import { normalizePost } from "../lib/postUtils";
 
 const NEWS_QUERY = encodeURIComponent("詐騙 OR 假投資 OR 解除分期 OR 假買家");
@@ -39,25 +40,48 @@ export async function crawlGoogleNewsPosts() {
   const items = parsed.rss?.channel?.item;
   const normalizedItems = Array.isArray(items) ? items : items ? [items] : [];
 
-  const posts = await Promise.all(
-    normalizedItems.slice(0, 8).map(async (item, index) =>
-      normalizePost({
+  // 先抓多一點(20 筆),再經 contentFilter 篩到實際案例,最後上限取 12 筆
+  const candidates = await Promise.all(
+    normalizedItems.slice(0, 20).map(async (item, index) => ({
+      raw: {
+        title: sanitize(item.title ?? ""),
+        content: sanitize(item.description ?? item.link ?? ""),
+      },
+      post: normalizePost({
         id: `google-news-${index}`,
-        source: "Google News",
+        source: "Google News" as const,
         board: "News Search",
         title: sanitize(item.title ?? "Google News 詐騙案例"),
         content: sanitize(item.description ?? item.link ?? ""),
         url: item.link ? await resolveArticleUrl(item.link) : undefined,
         publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
       }),
-    ),
+    })),
   );
 
-  if (posts.length === 0) {
-    throw new Error("Google News RSS did not return usable items.");
+  const filtered: ReturnType<typeof normalizePost>[] = [];
+  const dropped: string[] = [];
+  for (const { raw, post } of candidates) {
+    const verdict = filterScamCandidate(raw);
+    if (verdict.accept) {
+      filtered.push(post);
+    } else {
+      dropped.push(`${verdict.reason} | ${raw.title.slice(0, 50)}`);
+    }
   }
 
-  return posts;
+  if (dropped.length > 0) {
+    console.log(`[GoogleNews] filtered out ${dropped.length} non-case items:`);
+    for (const item of dropped.slice(0, 8)) {
+      console.log(`  - ${item}`);
+    }
+  }
+
+  if (filtered.length === 0) {
+    throw new Error("Google News RSS 抓到的內容皆被過濾(可能全是宣導/政治類)。");
+  }
+
+  return filtered.slice(0, 12);
 }
 
 function sanitize(value: string) {

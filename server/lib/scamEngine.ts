@@ -15,6 +15,25 @@ import {
 import { getRiskKeywords } from "./postUtils";
 import { crawlGoogleNewsPosts } from "../sources/googleNews";
 import { crawlPttPosts } from "../sources/ptt";
+import { crawlDashboard165Posts } from "../sources/dashboard165";
+import {
+  countPosts,
+  countPostsBySource,
+  deletePostsByIds,
+  getAllPosts as getAllStoredPosts,
+  getAllSourceStatus,
+  getRecentPosts,
+  upsertPost,
+  upsertSourceStatus,
+  type SourceStatusRecord,
+} from "./db";
+import { filterScamCandidate } from "./contentFilter";
+import { safeFetch, SsrfBlockedError } from "./safeFetch";
+import {
+  checkGoogleSafeBrowsing,
+  isSafeBrowsingConfigured,
+  lookupPhishingUrl,
+} from "./threatIntel";
 
 type EntityType = DemoPost["entities"][number]["type"];
 
@@ -52,6 +71,7 @@ export type GraphResponse = {
     label: string;
     type: string;
     weight: number;
+    group: string;
   }>;
   edges: Array<{
     from: string;
@@ -61,6 +81,11 @@ export type GraphResponse = {
     relation: string;
   }>;
   provider: "neo4j" | "memory";
+  stats: {
+    totalNodes: number;
+    totalEdges: number;
+    typeBreakdown: Record<string, number>;
+  };
 };
 
 export type AnalysisResult = {
@@ -89,6 +114,7 @@ export type AnalysisResult = {
       label: string;
       type: string;
       weight: number;
+      group: string;
     }>;
     edges: Array<{
       from: string;
@@ -105,6 +131,10 @@ export type AnalysisResult = {
 };
 
 export type FeedResponse = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
   posts: Array<{
     id: string;
     source: string;
@@ -130,109 +160,116 @@ export type SiteVerificationResult = {
     rawIpHost: boolean;
     suspiciousKeywords: string[];
     domainAgeHint: string;
+    safeBrowsing: Array<{ threatType: string; platformType: string }>;
+    phishingFeed: { matched: boolean; source?: string };
+    ssrfBlocked: boolean;
   };
-};
-
-type CrawlSourceState = {
-  name: string;
-  description: string;
-  posts: DemoPost[];
-  live: boolean;
-  lastUpdated: string;
-  errors: string[];
-};
-
-type CrawlState = {
-  sources: CrawlSourceState[];
 };
 
 const keywords = getRiskKeywords();
 
-let crawlState: CrawlState = createDemoState();
+const SOURCE_DESCRIPTIONS: Record<string, string> = {
+  PTT: "即時抓取 PTT 公開看板的最新案例。",
+  "Google News": "以 Google News 詐騙關鍵字檢索近期新聞作為廣域補充來源。",
+  "165 全民防騙網": "內政部刑事局 165 反詐騙官方詐騙手法公告。",
+  "User Report": "使用者透過前端回報的可疑案例。",
+};
+
+seedDemoIfEmpty();
+
 const embeddingCache = new Map<string, number[]>();
+
+// graph cache:同一個 limit 的結果會 cache,直到 invalidateGraphCache() 被呼叫
+const graphCache = new Map<number, { payload: GraphResponse; etag: string; builtAt: number }>();
+const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function invalidateGraphCache() {
+  graphCache.clear();
+}
 
 export async function crawlLiveSources() {
   const updatedAt = new Date().toISOString();
-  const nextSources: CrawlSourceState[] = [];
 
-  const pttResult = await safeRun(async () => {
-    const posts = await crawlPttPosts();
-    return {
-      name: "PTT",
-      description: "即時抓取 PTT 公開看板的最新案例。",
-      posts,
-      live: true,
-      lastUpdated: updatedAt,
-      errors: [] as string[],
-    };
-  });
+  await runOneSource("PTT", crawlPttPosts, updatedAt);
+  await runOneSource("Google News", crawlGoogleNewsPosts, updatedAt);
+  await runOneSource("165 全民防騙網", crawlDashboard165Posts, updatedAt);
 
-  nextSources.push(
-    pttResult.ok
-      ? pttResult.value
-      : {
-          ...findFallbackSource("PTT"),
-          live: false,
-          lastUpdated: updatedAt,
-          errors: [pttResult.error],
-        },
-  );
-
-  const googleResult = await safeRun(async () => {
-    const posts = await crawlGoogleNewsPosts();
-    return {
-      name: "Google News",
-      description: "以 Google News 詐騙關鍵字檢索近期新聞作為廣域補充來源。",
-      posts,
-      live: true,
-      lastUpdated: updatedAt,
-      errors: [] as string[],
-    };
-  });
-
-  nextSources.push(
-    googleResult.ok
-      ? googleResult.value
-      : {
-          ...findFallbackSource("Google News"),
-          live: false,
-          lastUpdated: updatedAt,
-          errors: [googleResult.error],
-        },
-  );
-
-  crawlState = {
-    sources: nextSources,
-  };
-
-  if (isNeo4jEnabled()) {
-    await syncPostsToNeo4j(getAllPosts());
+  // 用最新 filter 規則清掉前次抓到、現在規則會 reject 的舊噪音
+  const purged = purgeFilteredPosts();
+  if (purged.removed > 0) {
+    console.log(`[crawl] purged ${purged.removed} legacy noisy posts after crawl`);
   }
 
-  await warmEmbeddings(getAllPosts());
+  // 內容變了,清 graph cache
+  invalidateGraphCache();
+
+  const allPosts = getAllPosts();
+
+  if (isNeo4jEnabled()) {
+    await syncPostsToNeo4j(allPosts);
+  }
+
+  await warmEmbeddings(allPosts);
 
   return {
-    posts: getAllPosts(),
+    posts: allPosts,
     updatedAt,
   };
+}
+
+async function runOneSource(
+  name: string,
+  fetcher: () => Promise<DemoPost[]>,
+  updatedAt: string,
+) {
+  const description =
+    SOURCE_DESCRIPTIONS[name] ?? `${name} 詐騙案例來源。`;
+
+  const result = await safeRun(fetcher);
+  if (result.ok) {
+    let inserted = 0;
+    let updated = 0;
+    for (const post of result.value) {
+      const status = upsertPost(post, true);
+      if (status === "inserted") inserted += 1;
+      else if (status === "updated") updated += 1;
+    }
+    upsertSourceStatus({
+      name,
+      description: `${description}(本次新增 ${inserted} 筆,更新 ${updated} 筆)`,
+      live: true,
+      lastUpdated: updatedAt,
+      errors: [],
+    });
+  } else {
+    upsertSourceStatus({
+      name,
+      description,
+      live: false,
+      lastUpdated: updatedAt,
+      errors: [result.error],
+    });
+  }
 }
 
 export function getSnapshot(): SnapshotResponse {
   const posts = getAllPosts();
   const graph = buildKnowledgeGraph(posts);
   const neo4jStatus = getNeo4jStatus();
+  const sourceCounts = countPostsBySource();
+  const sources = getAllSourceStatus();
 
   return {
-    sources: crawlState.sources.map((source) => ({
+    sources: sources.map((source) => ({
       name: source.name,
       description: source.description,
-      postCount: source.posts.length,
+      postCount: sourceCounts[source.name] ?? 0,
       live: source.live,
       lastUpdated: source.lastUpdated,
       errors: source.errors,
     })),
     stats: {
-      posts: posts.length,
+      posts: countPosts(),
       nodes: graph.nodes.length,
       edges: graph.edges.length,
       keywords: keywords.length,
@@ -247,12 +284,18 @@ export function getSnapshot(): SnapshotResponse {
   };
 }
 
-export function getFeed(): FeedResponse {
-  const posts = getAllPosts()
-    .slice()
-    .sort(sortByPublishedAt)
-    .slice(0, 18)
-    .map((post) => ({
+export function getFeed(page = 1, pageSize = 12): FeedResponse {
+  const all = getAllPosts().slice().sort(sortByPublishedAt);
+  const total = all.length;
+  const offset = Math.max(0, (page - 1) * pageSize);
+  const slice = all.slice(offset, offset + pageSize);
+
+  return {
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    posts: slice.map((post) => ({
       id: post.id,
       source: post.source,
       board: post.board,
@@ -261,9 +304,8 @@ export function getFeed(): FeedResponse {
       scamType: post.scamType,
       url: post.url,
       publishedAt: post.publishedAt,
-    }));
-
-  return { posts };
+    })),
+  };
 }
 
 export async function analyzeMessage(message: string): Promise<AnalysisResult> {
@@ -366,19 +408,58 @@ export async function analyzeMessage(message: string): Promise<AnalysisResult> {
   };
 }
 
-export async function getGraph(): Promise<GraphResponse> {
-  const neo4jGraph = await getGraphFromNeo4j(18);
+export async function getGraph(limit = 80): Promise<GraphResponse & { etag: string }> {
+  const cached = graphCache.get(limit);
+  if (cached && Date.now() - cached.builtAt < GRAPH_CACHE_TTL_MS) {
+    return { ...cached.payload, etag: cached.etag };
+  }
+
+  const neo4jGraph = await getGraphFromNeo4j(limit);
+  let payload: GraphResponse;
   if (neo4jGraph) {
-    return {
-      ...neo4jGraph,
+    // post 節點 group 永遠是 "post",不是 scamType,
+    // 否則前端會 fallback 到灰色 default palette
+    const normalized = neo4jGraph.nodes.map((n) => ({
+      ...n,
+      group: n.id.startsWith("post:") ? "post" : n.type,
+    }));
+    payload = {
+      nodes: normalized,
+      edges: neo4jGraph.edges,
       provider: "neo4j",
+      stats: computeStats(normalized, neo4jGraph.edges),
+    };
+  } else {
+    const memoryGraph = buildKnowledgeGraph(getAllPosts(), limit);
+    payload = {
+      nodes: memoryGraph.nodes,
+      edges: memoryGraph.edges,
+      provider: "memory",
+      stats: computeStats(memoryGraph.nodes, memoryGraph.edges),
     };
   }
 
-  const memoryGraph = buildKnowledgeGraph(getAllPosts());
+  const etag = `"g${limit}-${payload.stats.totalNodes}-${payload.stats.totalEdges}-${countPosts()}"`;
+  graphCache.set(limit, { payload, etag, builtAt: Date.now() });
+  return { ...payload, etag };
+}
+
+function computeStats(
+  nodes: Array<{ id?: string; type: string; group?: string }>,
+  edges: unknown[],
+) {
+  // typeBreakdown 用前端的 group 維度計算(post / keyword / channel / ...)
+  // 才會跟前端 chip 對得起來。group 缺的話,fallback 到 id-based 推斷。
+  const typeBreakdown: Record<string, number> = {};
+  for (const n of nodes) {
+    const group =
+      n.group ?? (n.id?.startsWith("post:") ? "post" : n.type);
+    typeBreakdown[group] = (typeBreakdown[group] ?? 0) + 1;
+  }
   return {
-    ...memoryGraph,
-    provider: "memory",
+    totalNodes: nodes.length,
+    totalEdges: edges.length,
+    typeBreakdown,
   };
 }
 
@@ -406,22 +487,18 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
   const suspiciousTld = /\.(top|xyz|click|shop|vip|live|loan|work)$/i.test(host);
 
   let responseOk = false;
-  let fetchedTitle = "";
   let contentSignals: string[] = [];
+  let ssrfBlocked = false;
 
   try {
-    const response = await fetch(normalizedUrl, {
-      redirect: "follow",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; ScamIntelDemo/1.0; +https://localhost)",
-      },
+    const result = await safeFetch(normalizedUrl, {
+      timeoutMs: 5000,
+      maxBytes: 256 * 1024,
+      maxRedirects: 3,
     });
-
-    responseOk = response.ok;
-    const text = (await response.text()).slice(0, 12000);
+    responseOk = result.ok;
+    const text = result.text.slice(0, 12000);
     const lower = text.toLowerCase();
-    fetchedTitle = text.match(/<title>(.*?)<\/title>/i)?.[1]?.trim() ?? "";
     contentSignals = [
       "metamask",
       "walletconnect",
@@ -432,8 +509,23 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
       "輸入otp",
       "邀請碼",
     ].filter((signal) => lower.includes(signal.toLowerCase()));
-  } catch {
-    contentSignals.push("網站無法正常連線或拒絕連線");
+  } catch (error) {
+    if (error instanceof SsrfBlockedError) {
+      ssrfBlocked = true;
+      contentSignals.push(`SSRF 防護擋下:${error.message}`);
+    } else {
+      contentSignals.push("網站無法正常連線或拒絕連線");
+    }
+  }
+
+  const phishMatch = lookupPhishingUrl(normalizedUrl);
+  let safeBrowsingThreats: Array<{ threatType: string; platformType: string }> = [];
+  if (isSafeBrowsingConfigured()) {
+    try {
+      safeBrowsingThreats = await checkGoogleSafeBrowsing(normalizedUrl);
+    } catch {
+      safeBrowsingThreats = [];
+    }
   }
 
   const reasons: string[] = [];
@@ -463,9 +555,22 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
     riskScore += 18 + contentSignals.length * 4;
     reasons.push(`頁面內容出現高風險信號：${contentSignals.join("、")}。`);
   }
-  if (!responseOk) {
+  if (!responseOk && !ssrfBlocked) {
     riskScore += 12;
     reasons.push("網站回應異常或無法穩定取得內容。");
+  }
+  if (ssrfBlocked) {
+    riskScore += 30;
+    reasons.push("SSRF 防護機制擋下了該網址,可能指向內網或不允許的位址。");
+  }
+  if (phishMatch) {
+    riskScore += 40;
+    reasons.push(`已知釣魚網址清單命中(來源:${phishMatch.source})。`);
+  }
+  if (safeBrowsingThreats.length > 0) {
+    riskScore += 35;
+    const types = safeBrowsingThreats.map((t) => t.threatType).join("、");
+    reasons.push(`Google Safe Browsing 標記為:${types}。`);
   }
 
   const cappedScore = Math.min(98, riskScore);
@@ -490,6 +595,12 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
       rawIpHost,
       suspiciousKeywords,
       domainAgeHint: suspiciousTld ? "尾碼偏高風險" : "未檢出明顯尾碼異常",
+      safeBrowsing: safeBrowsingThreats,
+      phishingFeed: {
+        matched: Boolean(phishMatch),
+        source: phishMatch?.source,
+      },
+      ssrfBlocked,
     },
   };
 }
@@ -533,10 +644,10 @@ function buildAlert({
   };
 }
 
-function buildKnowledgeGraph(posts: DemoPost[]) {
+function buildKnowledgeGraph(posts: DemoPost[], maxNodes = 60) {
   const nodeMap = new Map<
     string,
-    { id: string; label: string; type: string; weight: number }
+    { id: string; label: string; type: string; weight: number; group: string }
   >();
   const edges: Array<{
     from: string;
@@ -553,6 +664,7 @@ function buildKnowledgeGraph(posts: DemoPost[]) {
       label: post.title,
       type: post.scamType,
       weight: Math.max(1, post.entities.length),
+      group: "post",
     });
 
     for (const entity of post.entities) {
@@ -564,6 +676,7 @@ function buildKnowledgeGraph(posts: DemoPost[]) {
         label: entity.value,
         type: entity.type,
         weight: current ? current.weight + 1 : 1,
+        group: entity.type,
       });
 
       edges.push({
@@ -578,7 +691,7 @@ function buildKnowledgeGraph(posts: DemoPost[]) {
 
   const nodes = [...nodeMap.values()]
     .sort((left, right) => right.weight - left.weight)
-    .slice(0, 8);
+    .slice(0, maxNodes);
   const allowedIds = new Set(nodes.map((node) => node.id));
 
   return {
@@ -608,8 +721,12 @@ function uniqueEntities(
   });
 }
 
-function getAllPosts() {
-  return crawlState.sources.flatMap((source) => source.posts);
+function getAllPosts(): DemoPost[] {
+  return getAllStoredPosts().map(({ firstSeenAt: _f, lastSeenAt: _l, live: _v, ...post }) => post);
+}
+
+export function getRecent(limit = 50): DemoPost[] {
+  return getRecentPosts(limit).map(({ firstSeenAt: _f, lastSeenAt: _l, live: _v, ...post }) => post);
 }
 
 function buildLatestScripts(posts: DemoPost[]) {
@@ -656,50 +773,65 @@ function normalizeUrl(inputUrl: string) {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-function createDemoState(): CrawlState {
+function seedDemoIfEmpty() {
+  if (countPosts() > 0) {
+    return;
+  }
   const updatedAt = new Date().toISOString();
-
-  return {
-    sources: [
-      {
-        name: "PTT",
-        description: "預設資料：模擬自公開看板案例。",
-        posts: demoPosts
-          .filter((post) => post.source === "PTT")
-          .map((post) => ({ ...post, url: undefined })),
-        live: false,
-        lastUpdated: updatedAt,
-        errors: [],
-      },
-      {
-        name: "Google News",
-        description: "預設資料：以新聞案例補充搜尋結果。",
-        posts: demoPosts
-          .filter((post) => post.source === "Dcard")
-          .map((post) => ({
-            ...post,
-            source: "Google News" as const,
-            url: undefined,
-          })),
-        live: false,
-        lastUpdated: updatedAt,
-        errors: [],
-      },
-    ],
-  };
+  for (const post of demoPosts) {
+    const seedSource =
+      post.source === "Dcard"
+        ? ("Google News" as const)
+        : (post.source as DemoPost["source"]);
+    upsertPost({ ...post, source: seedSource, url: undefined }, false);
+  }
+  for (const name of Object.keys(SOURCE_DESCRIPTIONS)) {
+    upsertSourceStatus({
+      name,
+      description: `預設資料:${SOURCE_DESCRIPTIONS[name]}`,
+      live: false,
+      lastUpdated: updatedAt,
+      errors: [],
+    });
+  }
 }
 
-function findFallbackSource(name: string): CrawlSourceState {
-  return (
-    crawlState.sources.find((source) => source.name === name) ?? {
-      name,
-      description: `${name} 尚未成功同步，使用空資料集。`,
-      posts: [],
-      live: false,
-      lastUpdated: new Date().toISOString(),
-      errors: [],
+export function getSourceStatusList(): SourceStatusRecord[] {
+  return getAllSourceStatus();
+}
+
+export function purgeFilteredPosts(): {
+  removed: number;
+  samples: Array<{ id: string; title: string; reason: string }>;
+} {
+  const samples: Array<{ id: string; title: string; reason: string }> = [];
+  const toDelete: string[] = [];
+
+  for (const post of getAllStoredPosts()) {
+    // 永遠保留使用者回報,即使內容看起來像政治也讓使用者自決
+    if (post.source === "User Report") continue;
+
+    const verdict = filterScamCandidate({
+      title: post.title,
+      content: post.content,
+    });
+    if (!verdict.accept) {
+      toDelete.push(post.id);
+      if (samples.length < 20) {
+        samples.push({
+          id: post.id,
+          title: post.title,
+          reason: verdict.reason ?? "filtered",
+        });
+      }
     }
-  );
+  }
+
+  const removed = deletePostsByIds(toDelete);
+  if (removed > 0) {
+    invalidateGraphCache();
+  }
+  return { removed, samples };
 }
 
 async function safeRun<T>(runner: () => Promise<T>) {
