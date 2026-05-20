@@ -647,7 +647,17 @@ function buildAlert({
 function buildKnowledgeGraph(posts: DemoPost[], maxNodes = 60) {
   const nodeMap = new Map<
     string,
-    { id: string; label: string; type: string; weight: number; group: string }
+    {
+      id: string;
+      label: string;
+      type: string;
+      weight: number;
+      group: string;
+      url?: string;
+      source?: string;
+      scamType?: string;
+      publishedAt?: string;
+    }
   >();
   const edges: Array<{
     from: string;
@@ -665,6 +675,10 @@ function buildKnowledgeGraph(posts: DemoPost[], maxNodes = 60) {
       type: post.scamType,
       weight: Math.max(1, post.entities.length),
       group: "post",
+      url: post.url,
+      source: post.source,
+      scamType: post.scamType,
+      publishedAt: post.publishedAt,
     });
 
     for (const entity of post.entities) {

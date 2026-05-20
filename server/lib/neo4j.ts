@@ -6,6 +6,10 @@ type GraphNode = {
   label: string;
   type: string;
   weight: number;
+  url?: string;
+  source?: string;
+  scamType?: string;
+  publishedAt?: string;
 };
 
 type GraphEdge = {
@@ -190,6 +194,10 @@ export async function getGraphFromNeo4j(limit = 10) {
         label: String(post.properties.title),
         type: String(post.properties.scamType),
         weight: 3,
+        url: post.properties.url ? String(post.properties.url) : undefined,
+        source: post.properties.source ? String(post.properties.source) : undefined,
+        scamType: post.properties.scamType ? String(post.properties.scamType) : undefined,
+        publishedAt: post.properties.publishedAt ? String(post.properties.publishedAt) : undefined,
       });
       nodeMap.set(entity.properties.id, {
         id: String(entity.properties.id),

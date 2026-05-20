@@ -52,6 +52,10 @@ export type GraphNode = {
   type: string;
   weight: number;
   group: string;
+  url?: string;
+  source?: string;
+  scamType?: string;
+  publishedAt?: string;
 };
 
 export type GraphEdge = {
