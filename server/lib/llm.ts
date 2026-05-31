@@ -10,6 +10,23 @@ const embeddingApiUrl = process.env.EMBEDDING_API_URL;
 const embeddingModelName = process.env.EMBEDDING_MODEL_NAME;
 const embeddingApiKey = process.env.EMBEDDING_API_KEY;
 
+const EMBEDDING_TIMEOUT_MS = Number(process.env.EMBEDDING_TIMEOUT_MS ?? 15000);
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 60000);
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function isLlmConfigured() {
   return Boolean(workerApiUrl && workerModelName);
 }
@@ -28,17 +45,21 @@ export async function createEmbedding(input: string): Promise<EmbeddingResult | 
     "embeddings",
     embeddingApiKey,
   );
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({
+        model: embeddingModelName,
+        input,
+      }),
     },
-    body: JSON.stringify({
-      model: embeddingModelName,
-      input,
-    }),
-  });
+    EMBEDDING_TIMEOUT_MS,
+  );
 
   if (!response.ok) {
     throw new Error(`Embedding API failed: ${response.status}`);
@@ -77,22 +98,26 @@ export async function generateAlertWithLlm(input: {
     "chat/completions",
     workerApiKey,
   );
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({
+        model: workerModelName,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: workerModelName,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
+    LLM_TIMEOUT_MS,
+  );
 
   if (!response.ok) {
     throw new Error(`LLM API failed: ${response.status}`);
@@ -152,21 +177,25 @@ export async function chatWithLlm(
     workerApiKey,
   );
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({
+        model: workerModelName,
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages,
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: workerModelName,
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
-    }),
-  });
+    LLM_TIMEOUT_MS,
+  );
 
   if (!response.ok) {
     throw new Error(`LLM chat API failed: ${response.status}`);

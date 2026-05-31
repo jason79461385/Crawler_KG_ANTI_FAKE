@@ -21,9 +21,45 @@ import {
   refreshPhishFeeds,
 } from "./lib/threatIntel";
 import { probeNeo4jOnStartup } from "./lib/neo4j";
+import {
+  broadcast,
+  registerSseClient,
+  sseHeartbeat,
+} from "./lib/events";
 
 const app = express();
 const port = 8787;
+
+const CRAWL_INTERVAL_MS = Number(process.env.CRAWL_INTERVAL_MS ?? 15 * 60 * 1000);
+const SSE_HEARTBEAT_MS = 25 * 1000;
+
+let crawlInFlight = false;
+
+async function runScheduledCrawl(reason: "startup" | "interval" | "manual") {
+  if (crawlInFlight) {
+    console.log(`[crawl] skip (${reason}): another crawl is still running`);
+    return;
+  }
+  crawlInFlight = true;
+  try {
+    const result = await crawlLiveSources();
+    broadcast({
+      type: "crawl",
+      at: result.updatedAt,
+      inserted: result.inserted,
+      updated: result.updated,
+      totalPosts: result.posts.length,
+      bySource: result.bySource,
+    });
+    console.log(
+      `[crawl] (${reason}) inserted=${result.inserted} updated=${result.updated} total=${result.posts.length}`,
+    );
+  } catch (error) {
+    console.error(`[crawl] (${reason}) failed:`, error);
+  } finally {
+    crawlInFlight = false;
+  }
+}
 
 app.use(cors());
 app.use(express.json({ limit: "200kb" }));
@@ -59,11 +95,26 @@ app.get("/api/graph", async (request, response) => {
 });
 
 app.post("/api/crawl", async (_request, response) => {
-  await crawlLiveSources();
+  await runScheduledCrawl("manual");
   void refreshPhishFeeds().catch((error) => {
     console.error("Phish feed refresh failed:", error);
   });
   response.json(getSnapshot());
+});
+
+app.get("/api/events", (request, response) => {
+  response.setHeader("Content-Type", "text/event-stream");
+  response.setHeader("Cache-Control", "no-cache, no-transform");
+  response.setHeader("Connection", "keep-alive");
+  response.setHeader("X-Accel-Buffering", "no");
+  response.flushHeaders?.();
+  response.write(
+    `data: ${JSON.stringify({ type: "hello", at: new Date().toISOString() })}\n\n`,
+  );
+  registerSseClient(response);
+  request.on("close", () => {
+    try { response.end(); } catch { /* ignore */ }
+  });
 });
 
 app.post("/api/purge-noise", (_request, response) => {
@@ -84,7 +135,14 @@ app.post("/api/analyze", async (request, response) => {
     return;
   }
 
-  response.json(await analyzeMessage(message));
+  try {
+    response.json(await analyzeMessage(message));
+  } catch (error) {
+    console.error("[/api/analyze] failed:", error);
+    response.status(500).json({
+      error: error instanceof Error ? error.message : "analyze failed",
+    });
+  }
 });
 
 app.post("/api/verify-site", async (request, response) => {
@@ -246,9 +304,15 @@ void probeNeo4jOnStartup().catch(() => {
   /* probe failure is logged inside */
 });
 
-void crawlLiveSources().catch((error) => {
-  console.error("Initial live crawl failed:", error);
-});
+void runScheduledCrawl("startup");
+
+setInterval(() => {
+  void runScheduledCrawl("interval");
+}, CRAWL_INTERVAL_MS);
+
+setInterval(() => {
+  sseHeartbeat();
+}, SSE_HEARTBEAT_MS);
 
 void refreshPhishFeeds(true).catch((error) => {
   console.error("Initial phish feed refresh failed:", error);

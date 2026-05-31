@@ -90,6 +90,7 @@ function VerificationResult({ result }: { result: SiteVerificationResponse }) {
         : "border-emerald-300/25 bg-emerald-500/10 text-emerald-100";
 
   const label = result.verdict === "danger" ? "高風險網站" : result.verdict === "warning" ? "可疑網站" : "暫無明顯異常";
+  const content = result.signals.content;
 
   return (
     <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -105,6 +106,27 @@ function VerificationResult({ result }: { result: SiteVerificationResponse }) {
           </div>
         </div>
         <p className="mt-4 text-sm leading-7">{result.summary}</p>
+
+        {content?.fetched ? (
+          <div className="mt-5 space-y-2 rounded-2xl border border-white/15 bg-black/15 p-4 text-xs leading-6">
+            <p className="text-[11px] tracking-[0.14em] uppercase opacity-80">擷取的網站內容</p>
+            {content.title ? (
+              <p><span className="opacity-70">Title:</span> {content.title}</p>
+            ) : null}
+            {content.description ? (
+              <p><span className="opacity-70">描述:</span> {content.description}</p>
+            ) : null}
+            {content.lang ? (
+              <p><span className="opacity-70">語言:</span> {content.lang}</p>
+            ) : null}
+            {content.llmVerdict ? (
+              <p className="mt-2 rounded-xl bg-white/8 px-3 py-2">
+                <span className="font-semibold">LLM 判讀({content.llmVerdict.verdict}):</span>{" "}
+                {content.llmVerdict.reason}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-3xl border border-white/10 bg-slate-950/40 p-6">
@@ -117,6 +139,34 @@ function VerificationResult({ result }: { result: SiteVerificationResponse }) {
           )}
         </ul>
 
+        {content?.fetched && content.categories.length > 0 ? (
+          <div className="mt-5">
+            <p className="text-xs font-semibold tracking-[0.14em] text-cyan-100 uppercase">內容類別</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {content.categories.map((cat) => (
+                <span
+                  key={cat.category}
+                  className="rounded-full border border-rose-300/30 bg-rose-500/15 px-3 py-1 text-xs text-rose-100"
+                  title={cat.matches.join("、")}
+                >
+                  {cat.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {content?.fetched && content.suspiciousFormFields.length > 0 ? (
+          <div className="mt-4">
+            <p className="text-xs font-semibold tracking-[0.14em] text-amber-100 uppercase">高敏感表單欄位</p>
+            <ul className="mt-2 space-y-1 text-xs text-amber-100/90">
+              {content.suspiciousFormFields.map((f, idx) => (
+                <li key={idx}>· {f}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
           <SignalChip label="HTTPS" ok={result.signals.https} />
           <SignalChip label="無 punycode" ok={!result.signals.punycode} />
@@ -124,6 +174,14 @@ function VerificationResult({ result }: { result: SiteVerificationResponse }) {
           <SignalChip label="SSRF 安全" ok={!result.signals.ssrfBlocked} />
           <SignalChip label="未列釣魚 Feed" ok={!result.signals.phishingFeed.matched} />
           <SignalChip label="Safe Browsing 乾淨" ok={result.signals.safeBrowsing.length === 0} />
+          <SignalChip
+            label="內容已擷取"
+            ok={Boolean(content?.fetched)}
+          />
+          <SignalChip
+            label="無敏感表單欄位"
+            ok={!content?.suspiciousFormFields.length}
+          />
         </div>
 
         {result.signals.phishingFeed.matched ? (

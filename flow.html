@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Scam Intel Console — 系統流程</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slide-bg: #0a1628;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --arrow: #cbd5e1;
+    --pill-bg: #1e293b;
+    --pill-stroke: #475569;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    padding: 48px 24px 80px;
+    background: var(--slide-bg);
+    color: var(--ink);
+    font-family: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header.page {
+    max-width: 1640px;
+    margin: 0 auto 32px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  header.page > div { min-width: 280px; }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+    color: #f8fafc;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin: 0;
+    font-size: 14px;
+  }
+  section {
+    background: rgba(255,255,255,0.02);
+    max-width: 1640px;
+    margin: 0 auto 24px;
+    padding: 26px 32px 32px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  section header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-bottom: 6px;
+  }
+  section h2 {
+    font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em;
+    color: #f1f5f9;
+  }
+  section .caption {
+    color: var(--muted); margin: 0 0 22px;
+    font-size: 13px; line-height: 1.7; max-width: 80ch;
+  }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  button.dl {
+    background: rgba(255,255,255,0.06);
+    color: #e2e8f0;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button.dl:hover { background: rgba(255,255,255,0.12); }
+  button.dl:disabled { opacity: 0.5; cursor: wait; }
+
+  text { font-family: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif; user-select: none; }
+  .box-title { font-weight: 700; font-size: 16px; }
+  .box-line { font-size: 13px; }
+  .arrow-label { font-size: 12px; fill: #e2e8f0; }
+</style>
+</head>
+<body>
+<header class="page">
+  <div>
+    <h1>Scam Intel Console — 系統流程</h1>
+    <p class="subtitle">React + Express 即時防詐 Demo · 系統架構與三大主要流程</p>
+  </div>
+  <button class="dl" id="dl-all">下載全部 (4 張 PNG)</button>
+</header>
+
+<section data-diagram="d1" data-filename="scam-intel-1-overview">
+  <header>
+    <h2>1. 系統總覽</h2>
+    <button class="dl" data-dl="d1">下載 PNG</button>
+  </header>
+  <p class="caption">前端透過 REST API 進入引擎,經由 Orchestrator 分派到三個核心模組,各自呼叫對應的外部資源;Orchestrator 同時將狀態落地至持久層。</p>
+  <svg id="d1" viewBox="0 0 1200 500"></svg>
+</section>
+
+<section data-diagram="d2" data-filename="scam-intel-2-crawl">
+  <header>
+    <h2>2. 資料抓取與同步</h2>
+    <button class="dl" data-dl="d2">下載 PNG</button>
+  </header>
+  <p class="caption">並行抓取多個來源、標準化過濾後寫入記憶體狀態,再扇出至三個持久化目的地;來源失效時切到 Demo Fallback。</p>
+  <svg id="d2" viewBox="0 0 1720 500"></svg>
+</section>
+
+<section data-diagram="d3" data-filename="scam-intel-3-analyze">
+  <header>
+    <h2>3. 對話風險分析</h2>
+    <button class="dl" data-dl="d3">下載 PNG</button>
+  </header>
+  <p class="caption">混合評分(關鍵字 + 實體 + 語意向量),挑選最相關案例後請 LLM 生成警示;若 LLM 未配置或失敗,自動回到規則式警示。</p>
+  <svg id="d3" viewBox="0 0 1720 440"></svg>
+</section>
+
+<section data-diagram="d4" data-filename="scam-intel-4-verify">
+  <header>
+    <h2>4. 網站驗證</h2>
+    <button class="dl" data-dl="d4">下載 PNG</button>
+  </header>
+  <p class="caption">三條訊號管線並行匯入評分:網址表層信號、HTML 內容萃取與分析、外部威脅情資;最後彙整為單一風險判定。</p>
+  <svg id="d4" viewBox="0 0 1720 580"></svg>
+</section>
+
+<script>
+const SLIDE_BG = '#0a1628';
+const ARROW_COLOR = '#cbd5e1';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// 為了在深色背景上仍清晰,box 維持淺色 pastel 填色 + 較亮的描邊。
+const STYLES = {
+  ui:         { fill: '#bfdbfe', stroke: '#60a5fa', text: '#1e3a8a' },
+  core:       { fill: '#fed7aa', stroke: '#fb923c', text: '#7c2d12' },
+  perception: { fill: '#a7f3d0', stroke: '#34d399', text: '#064e3b' },
+  graph:      { fill: '#bbf7d0', stroke: '#4ade80', text: '#14532d' },
+  planning:   { fill: '#fbcfe8', stroke: '#f472b6', text: '#831843' },
+  skills:     { fill: '#fef08a', stroke: '#facc15', text: '#713f12' },
+  storage:    { fill: '#ddd6fe', stroke: '#a78bfa', text: '#4c1d95' },
+  ext:        { fill: '#cbd5e1', stroke: '#94a3b8', text: '#0f172a' },
+  io:         { fill: '#bae6fd', stroke: '#38bdf8', text: '#0c4a6e' },
+  warn:       { fill: '#fecaca', stroke: '#f87171', text: '#7f1d1d' },
+};
+
+function el(tag, attrs = {}) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v !== undefined && v !== null) e.setAttribute(k, v);
+  }
+  return e;
+}
+
+function ensureDefs(svg) {
+  if (svg.querySelector('defs')) return;
+  const defs = el('defs');
+  const marker = el('marker', {
+    id: 'arrow-' + svg.id,
+    viewBox: '0 0 10 10',
+    refX: 9, refY: 5,
+    markerWidth: 7, markerHeight: 7,
+    orient: 'auto-start-reverse',
+  });
+  marker.appendChild(el('path', { d: 'M0,0 L10,5 L0,10 z', fill: ARROW_COLOR }));
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+}
+
+function drawBox(svg, box) {
+  const s = STYLES[box.style] || STYLES.core;
+  const g = el('g');
+
+  if (box.shape === 'db') {
+    const ry = 12;
+    g.appendChild(el('rect', {
+      x: box.x, y: box.y + ry, width: box.w, height: box.h - 2 * ry,
+      fill: s.fill, stroke: s.stroke, 'stroke-width': 2,
+    }));
+    g.appendChild(el('ellipse', {
+      cx: box.x + box.w / 2, cy: box.y + ry,
+      rx: box.w / 2, ry: ry,
+      fill: s.fill, stroke: s.stroke, 'stroke-width': 2,
+    }));
+    g.appendChild(el('ellipse', {
+      cx: box.x + box.w / 2, cy: box.y + box.h - ry,
+      rx: box.w / 2, ry: ry,
+      fill: 'transparent', stroke: s.stroke, 'stroke-width': 2,
+    }));
+  } else {
+    g.appendChild(el('rect', {
+      x: box.x, y: box.y, width: box.w, height: box.h,
+      rx: 14, ry: 14,
+      fill: s.fill, stroke: s.stroke, 'stroke-width': 2,
+    }));
+  }
+
+  const lines = box.label.split('\n');
+  const titleH = 22;
+  const lineH = 19;
+  const totalH = titleH + (lines.length - 1) * lineH;
+  let y = box.y + box.h / 2 - totalH / 2 + 16;
+  lines.forEach((line, i) => {
+    const t = el('text', {
+      x: box.x + box.w / 2, y: y,
+      'text-anchor': 'middle',
+      class: i === 0 ? 'box-title' : 'box-line',
+      fill: s.text,
+    });
+    t.textContent = line;
+    g.appendChild(t);
+    y += i === 0 ? titleH : lineH;
+  });
+
+  svg.appendChild(g);
+}
+
+function edgePoint(box, side, frac = 0.5) {
+  switch (side) {
+    case 'left':   return [box.x, box.y + box.h * frac];
+    case 'right':  return [box.x + box.w, box.y + box.h * frac];
+    case 'top':    return [box.x + box.w * frac, box.y];
+    case 'bottom': return [box.x + box.w * frac, box.y + box.h];
+  }
+}
+
+function drawArrow(svg, boxesById, arrow) {
+  const from = boxesById[arrow.from];
+  const to = boxesById[arrow.to];
+  if (!from || !to) return;
+  const fromSide = arrow.sides ? arrow.sides[0] : 'right';
+  const toSide = arrow.sides ? arrow.sides[1] : 'left';
+  const [x1, y1] = edgePoint(from, fromSide, arrow.fromFrac ?? 0.5);
+  const [x2, y2] = edgePoint(to, toSide, arrow.toFrac ?? 0.5);
+
+  let pathD;
+  if (arrow.curve) {
+    let cp1x, cp1y, cp2x, cp2y;
+    const horiz = fromSide === 'right' || fromSide === 'left';
+    if (horiz) {
+      const sign = fromSide === 'right' ? 1 : -1;
+      const len = Math.max(40, Math.abs(x2 - x1) * 0.5);
+      cp1x = x1 + sign * len; cp1y = y1;
+      const sign2 = toSide === 'right' ? 1 : -1;
+      cp2x = x2 + sign2 * len; cp2y = y2;
+    } else {
+      const sign = fromSide === 'bottom' ? 1 : -1;
+      const len = Math.max(40, Math.abs(y2 - y1) * 0.5);
+      cp1x = x1; cp1y = y1 + sign * len;
+      const sign2 = toSide === 'bottom' ? 1 : -1;
+      cp2x = x2; cp2y = y2 + sign2 * len;
+    }
+    pathD = `M${x1},${y1} C${cp1x},${cp1y} ${cp2x},${cp2y} ${x2},${y2}`;
+  } else {
+    pathD = `M${x1},${y1} L${x2},${y2}`;
+  }
+
+  const path = el('path', {
+    d: pathD,
+    fill: 'none',
+    stroke: arrow.color || ARROW_COLOR,
+    'stroke-width': 1.8,
+    'marker-end': 'url(#arrow-' + svg.id + ')',
+  });
+  if (arrow.dashed) path.setAttribute('stroke-dasharray', '6 4');
+  if (arrow.bidirectional) path.setAttribute('marker-start', 'url(#arrow-' + svg.id + ')');
+  svg.appendChild(path);
+
+  if (arrow.label) {
+    const lx = (x1 + x2) / 2 + (arrow.labelOffset?.dx || 0);
+    const ly = (y1 + y2) / 2 + (arrow.labelOffset?.dy || 0);
+    const approxW = Math.max(arrow.label.length * 8 + 18, 40);
+    const approxH = 22;
+    svg.appendChild(el('rect', {
+      x: lx - approxW / 2, y: ly - approxH / 2,
+      width: approxW, height: approxH,
+      rx: 11, ry: 11,
+      fill: '#1e293b', stroke: '#475569', 'stroke-width': 1,
+    }));
+    const t = el('text', {
+      x: lx, y: ly + 4,
+      'text-anchor': 'middle',
+      class: 'arrow-label',
+    });
+    t.textContent = arrow.label;
+    svg.appendChild(t);
+  }
+}
+
+function renderDiagram(svgId, config) {
+  const svg = document.getElementById(svgId);
+  ensureDefs(svg);
+  const boxesById = {};
+  config.boxes.forEach(b => { boxesById[b.id] = b; });
+  config.boxes.forEach(b => drawBox(svg, b));
+  (config.arrows || []).forEach(a => drawArrow(svg, boxesById, a));
+}
+
+// =========================================================================
+// Diagram 1 — System overview
+// =========================================================================
+renderDiagram('d1', {
+  boxes: [
+    { id: 'ui',       x: 40,  y: 140, w: 200, h: 180, style: 'ui',
+      label: 'User Interface\nDashboard · Verify\nFeed · Chat · Report' },
+
+    { id: 'api',      x: 300, y: 140, w: 180, h: 70, style: 'core',
+      label: 'REST API' },
+    { id: 'orch',     x: 300, y: 250, w: 180, h: 70, style: 'core',
+      label: 'Orchestrator' },
+    { id: 'storage',  x: 270, y: 355, w: 240, h: 80, style: 'storage',
+      label: 'Persistence\nIn-Memory · SQLite · Neo4j' },
+
+    { id: 'crawler',  x: 540, y: 130, w: 220, h: 90, style: 'perception',
+      label: 'Source Crawlers' },
+    { id: 'analyzer', x: 540, y: 240, w: 220, h: 90, style: 'graph',
+      label: 'Message Analyzer' },
+    { id: 'verifier', x: 540, y: 350, w: 220, h: 90, style: 'planning',
+      label: 'Site Verifier' },
+
+    { id: 'web',      x: 820, y: 110, w: 300, h: 130, style: 'ext',
+      label: 'External Web\nPTT · Google News\n165 · Target URLs' },
+    { id: 'svc',      x: 820, y: 250, w: 300, h: 190, style: 'ext',
+      label: 'External Services\n\nLLM · Embedding\nSafe Browsing · Phishing' },
+  ],
+  arrows: [
+    { from: 'ui', to: 'api', sides: ['right','left'], bidirectional: true, fromFrac: 0.194 },
+    { from: 'api', to: 'orch', sides: ['bottom','top'] },
+    { from: 'orch', to: 'storage', sides: ['bottom','top'] },
+    { from: 'orch', to: 'crawler',  sides: ['right','left'], fromFrac: 0.1,  toFrac: 0.9 },
+    { from: 'orch', to: 'analyzer', sides: ['right','left'] },
+    { from: 'orch', to: 'verifier', sides: ['right','left'], fromFrac: 0.9,  toFrac: 0.1 },
+    { from: 'crawler',  to: 'web', sides: ['right','left'] },
+    { from: 'analyzer', to: 'svc', sides: ['right','left'], toFrac: 0.194 },
+    { from: 'verifier', to: 'svc', sides: ['right','left'], toFrac: 0.806 },
+  ],
+});
+
+// =========================================================================
+// Diagram 2 — Crawl & sync
+// =========================================================================
+renderDiagram('d2', {
+  boxes: [
+    { id: 'trigger',   x: 30,   y: 200, w: 160, h: 80, style: 'io',    label: '啟動 / 觸發' },
+    { id: 'crawl',     x: 230,  y: 200, w: 200, h: 80, style: 'core',  label: 'crawlLiveSources' },
+
+    { id: 'ptt',       x: 480,  y: 60,  w: 200, h: 80, style: 'perception', label: 'PTT 看板' },
+    { id: 'gn',        x: 480,  y: 200, w: 200, h: 80, style: 'perception', label: 'Google News' },
+    { id: 'gov',       x: 480,  y: 340, w: 200, h: 80, style: 'perception', label: '165 全民防騙網' },
+
+    { id: 'normalize', x: 730,  y: 200, w: 200, h: 80, style: 'graph', label: '標準化 DemoPost' },
+    { id: 'filter',    x: 980,  y: 200, w: 180, h: 80, style: 'graph', label: '詐騙候選過濾' },
+
+    { id: 'fallback',  x: 980,  y: 380, w: 180, h: 80, style: 'warn',  label: 'Demo Fallback' },
+
+    { id: 'state',     x: 1230, y: 200, w: 180, h: 80, style: 'skills', label: 'In-Memory 狀態' },
+
+    { id: 'sqlite',    x: 1490, y: 60,  w: 200, h: 80, style: 'storage', label: 'SQLite', shape: 'db' },
+    { id: 'neo4j',     x: 1490, y: 200, w: 200, h: 80, style: 'storage', label: 'Neo4j', shape: 'db' },
+    { id: 'warm',      x: 1490, y: 340, w: 200, h: 80, style: 'storage', label: 'Embedding 預熱' },
+  ],
+  arrows: [
+    { from: 'trigger', to: 'crawl', sides: ['right','left'] },
+    { from: 'crawl', to: 'ptt', sides: ['right','left'], curve: true },
+    { from: 'crawl', to: 'gn',  sides: ['right','left'] },
+    { from: 'crawl', to: 'gov', sides: ['right','left'], curve: true },
+    { from: 'ptt', to: 'normalize', sides: ['right','left'], curve: true },
+    { from: 'gn',  to: 'normalize', sides: ['right','left'] },
+    { from: 'gov', to: 'normalize', sides: ['right','left'], curve: true },
+    { from: 'normalize', to: 'filter', sides: ['right','left'] },
+    { from: 'filter', to: 'state', sides: ['right','left'] },
+    { from: 'filter', to: 'fallback', sides: ['bottom','top'], label: '失敗' },
+    { from: 'fallback', to: 'state', sides: ['right','left'], curve: true },
+    { from: 'state', to: 'sqlite', sides: ['right','left'], curve: true },
+    { from: 'state', to: 'neo4j',  sides: ['right','left'] },
+    { from: 'state', to: 'warm',   sides: ['right','left'], curve: true },
+  ],
+});
+
+// =========================================================================
+// Diagram 3 — Message analysis
+// =========================================================================
+renderDiagram('d3', {
+  boxes: [
+    { id: 'msg',      x: 30,   y: 180, w: 180, h: 80, style: 'io',
+      label: '使用者訊息' },
+    { id: 'features', x: 250,  y: 170, w: 260, h: 100, style: 'perception',
+      label: '特徵抽取\n關鍵字 · 實體 · 向量' },
+    { id: 'score',    x: 550,  y: 170, w: 260, h: 100, style: 'graph',
+      label: '證據評分\n+ 局部 KG' },
+    { id: 'top',      x: 850,  y: 180, w: 200, h: 80, style: 'graph',
+      label: '取出最相關案例' },
+    { id: 'llmDec',   x: 1090, y: 170, w: 200, h: 100, style: 'planning',
+      label: 'LLM 可用?' },
+    { id: 'llmGen',   x: 1330, y: 60,  w: 220, h: 80, style: 'planning',
+      label: 'LLM 生成警示' },
+    { id: 'det',      x: 1330, y: 300, w: 220, h: 80, style: 'warn',
+      label: '規則式警示' },
+    { id: 'out',      x: 1590, y: 180, w: 100, h: 80, style: 'io',
+      label: '輸出' },
+  ],
+  arrows: [
+    { from: 'msg', to: 'features', sides: ['right','left'] },
+    { from: 'features', to: 'score', sides: ['right','left'] },
+    { from: 'score', to: 'top', sides: ['right','left'] },
+    { from: 'top', to: 'llmDec', sides: ['right','left'] },
+    { from: 'llmDec', to: 'llmGen', sides: ['right','left'], curve: true, fromFrac: 0.3, label: '是' },
+    { from: 'llmDec', to: 'det',    sides: ['right','left'], curve: true, fromFrac: 0.7, label: '否' },
+    { from: 'llmGen', to: 'out', sides: ['right','left'], curve: true, toFrac: 0.3 },
+    { from: 'det',    to: 'out', sides: ['right','left'], curve: true, toFrac: 0.7 },
+    { from: 'llmGen', to: 'det', sides: ['bottom','top'], dashed: true, label: '失敗' },
+  ],
+});
+
+// =========================================================================
+// Diagram 4 — Site verification
+// =========================================================================
+renderDiagram('d4', {
+  boxes: [
+    { id: 'url',     x: 30,   y: 240, w: 160, h: 80, style: 'io',
+      label: '可疑網址' },
+    { id: 'norm',    x: 230,  y: 240, w: 180, h: 80, style: 'core',
+      label: '網址正規化' },
+    { id: 'urlSig',  x: 460,  y: 80,  w: 280, h: 100, style: 'perception',
+      label: '網址表層信號\nHTTPS · IP · 尾碼' },
+    { id: 'fetch',   x: 460,  y: 240, w: 280, h: 100, style: 'perception',
+      label: 'Safe Fetch HTML\nSSRF 防護' },
+    { id: 'intel',   x: 460,  y: 400, w: 280, h: 100, style: 'perception',
+      label: '威脅情資\nSafe Browsing · Phishing' },
+    { id: 'extract', x: 800,  y: 240, w: 320, h: 100, style: 'graph',
+      label: '內容萃取與分析\n類別 · 表單 · LLM 判讀' },
+    { id: 'agg',     x: 1190, y: 200, w: 280, h: 180, style: 'skills',
+      label: '彙整風險分數' },
+    { id: 'verdict', x: 1530, y: 240, w: 170, h: 100, style: 'io',
+      label: 'Verdict\nsafe · warning\ndanger' },
+  ],
+  arrows: [
+    { from: 'url', to: 'norm', sides: ['right','left'] },
+    { from: 'norm', to: 'urlSig', sides: ['right','left'], curve: true },
+    { from: 'norm', to: 'fetch',  sides: ['right','left'] },
+    { from: 'norm', to: 'intel',  sides: ['right','left'], curve: true },
+    { from: 'fetch', to: 'extract', sides: ['right','left'] },
+    { from: 'urlSig',  to: 'agg', sides: ['right','left'], curve: true, toFrac: 0.2 },
+    { from: 'extract', to: 'agg', sides: ['right','left'], toFrac: 0.5 },
+    { from: 'intel',   to: 'agg', sides: ['right','left'], curve: true, toFrac: 0.8 },
+    { from: 'agg', to: 'verdict', sides: ['right','left'] },
+  ],
+});
+
+// =========================================================================
+// PNG 匯出:把 SVG 序列化 → <img> → canvas → PNG。
+// 字型用 document.fonts.ready 等載入完才畫,避免 fallback。
+// =========================================================================
+const EMBED_CSS = `
+  text { font-family: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif; }
+  .box-title { font-weight: 700; font-size: 16px; }
+  .box-line { font-size: 13px; }
+  .arrow-label { font-size: 12px; fill: #e2e8f0; }
+`;
+
+async function exportDiagramAsPng(svgId, filename, bgColor = SLIDE_BG, scale = 2) {
+  try { await document.fonts.ready; } catch {}
+
+  const svg = document.getElementById(svgId);
+  const clone = svg.cloneNode(true);
+  const styleEl = document.createElementNS(SVG_NS, 'style');
+  styleEl.textContent = EMBED_CSS;
+  clone.insertBefore(styleEl, clone.firstChild);
+
+  const vb = svg.viewBox.baseVal;
+  clone.setAttribute('xmlns', SVG_NS);
+  clone.setAttribute('width', vb.width);
+  clone.setAttribute('height', vb.height);
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(vb.width * scale);
+  canvas.height = Math.round(vb.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (bgColor) {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  await new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename + '.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      resolve();
+    }, 'image/png');
+  });
+}
+
+function setupDownload() {
+  document.querySelectorAll('button[data-dl]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const svgId = btn.dataset.dl;
+      const section = btn.closest('section');
+      const filename = section.dataset.filename || svgId;
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = '產生中…';
+      try {
+        await exportDiagramAsPng(svgId, filename);
+      } catch (e) {
+        console.error(e);
+        alert('匯出失敗:' + (e?.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
+      }
+    });
+  });
+
+  document.getElementById('dl-all').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const prev = btn.textContent;
+    try {
+      for (const section of document.querySelectorAll('section[data-diagram]')) {
+        btn.textContent = '匯出 ' + section.dataset.diagram + '…';
+        await exportDiagramAsPng(section.dataset.diagram, section.dataset.filename);
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }
+  });
+}
+setupDownload();
+</script>
+</body>
+</html>

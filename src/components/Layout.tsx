@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useSnapshot } from "../context/SnapshotContext";
 import { ChatWidget } from "./ChatWidget";
+import { CrawlToast } from "./CrawlToast";
 
 const NAV_LINKS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -79,6 +80,7 @@ export function Layout() {
       </footer>
 
       <ChatWidget />
+      <CrawlToast />
     </div>
   );
 }

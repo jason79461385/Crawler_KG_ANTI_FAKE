@@ -34,6 +34,13 @@ import {
   isSafeBrowsingConfigured,
   lookupPhishingUrl,
 } from "./threatIntel";
+import {
+  extractSiteContent,
+  CATEGORY_LABELS,
+  CATEGORY_WEIGHTS,
+  type ExtractedSite,
+} from "./siteContent";
+import { chatWithLlm } from "./llm";
 
 type EntityType = DemoPost["entities"][number]["type"];
 
@@ -163,6 +170,19 @@ export type SiteVerificationResult = {
     safeBrowsing: Array<{ threatType: string; platformType: string }>;
     phishingFeed: { matched: boolean; source?: string };
     ssrfBlocked: boolean;
+    content?: {
+      fetched: boolean;
+      title: string;
+      description: string;
+      lang: string;
+      categories: Array<{ category: string; label: string; matches: string[] }>;
+      suspiciousFormFields: string[];
+      externalScriptHosts: string[];
+      llmVerdict?: {
+        verdict: "safe" | "warning" | "danger";
+        reason: string;
+      };
+    };
   };
 };
 
@@ -190,9 +210,13 @@ function invalidateGraphCache() {
 export async function crawlLiveSources() {
   const updatedAt = new Date().toISOString();
 
-  await runOneSource("PTT", crawlPttPosts, updatedAt);
-  await runOneSource("Google News", crawlGoogleNewsPosts, updatedAt);
-  await runOneSource("165 全民防騙網", crawlDashboard165Posts, updatedAt);
+  const bySource: Record<string, { inserted: number; updated: number; live: boolean }> = {};
+  const r1 = await runOneSource("PTT", crawlPttPosts, updatedAt);
+  bySource["PTT"] = r1;
+  const r2 = await runOneSource("Google News", crawlGoogleNewsPosts, updatedAt);
+  bySource["Google News"] = r2;
+  const r3 = await runOneSource("165 全民防騙網", crawlDashboard165Posts, updatedAt);
+  bySource["165 全民防騙網"] = r3;
 
   // 用最新 filter 規則清掉前次抓到、現在規則會 reject 的舊噪音
   const purged = purgeFilteredPosts();
@@ -211,9 +235,15 @@ export async function crawlLiveSources() {
 
   await warmEmbeddings(allPosts);
 
+  const totalInserted = r1.inserted + r2.inserted + r3.inserted;
+  const totalUpdated = r1.updated + r2.updated + r3.updated;
+
   return {
     posts: allPosts,
     updatedAt,
+    inserted: totalInserted,
+    updated: totalUpdated,
+    bySource,
   };
 }
 
@@ -221,7 +251,7 @@ async function runOneSource(
   name: string,
   fetcher: () => Promise<DemoPost[]>,
   updatedAt: string,
-) {
+): Promise<{ inserted: number; updated: number; live: boolean }> {
   const description =
     SOURCE_DESCRIPTIONS[name] ?? `${name} 詐騙案例來源。`;
 
@@ -241,15 +271,16 @@ async function runOneSource(
       lastUpdated: updatedAt,
       errors: [],
     });
-  } else {
-    upsertSourceStatus({
-      name,
-      description,
-      live: false,
-      lastUpdated: updatedAt,
-      errors: [result.error],
-    });
+    return { inserted, updated, live: true };
   }
+  upsertSourceStatus({
+    name,
+    description,
+    live: false,
+    lastUpdated: updatedAt,
+    errors: [result.error],
+  });
+  return { inserted: 0, updated: 0, live: false };
 }
 
 export function getSnapshot(): SnapshotResponse {
@@ -487,19 +518,30 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
   const suspiciousTld = /\.(top|xyz|click|shop|vip|live|loan|work)$/i.test(host);
 
   let responseOk = false;
-  let contentSignals: string[] = [];
+  const contentSignals: string[] = [];
   let ssrfBlocked = false;
+  let extracted: ExtractedSite | null = null;
 
   try {
     const result = await safeFetch(normalizedUrl, {
-      timeoutMs: 5000,
-      maxBytes: 256 * 1024,
+      timeoutMs: 6000,
+      maxBytes: 384 * 1024,
       maxRedirects: 3,
     });
     responseOk = result.ok;
-    const text = result.text.slice(0, 12000);
-    const lower = text.toLowerCase();
-    contentSignals = [
+    if (result.text) {
+      try {
+        extracted = extractSiteContent(result.text, result.finalUrl ?? normalizedUrl);
+      } catch (error) {
+        console.warn(
+          "[verifySite] content extraction failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    // Keep the legacy quick-hit signals so existing reasons stay populated.
+    const lower = result.text.slice(0, 12000).toLowerCase();
+    const legacy = [
       "metamask",
       "walletconnect",
       "立即入金",
@@ -509,6 +551,7 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
       "輸入otp",
       "邀請碼",
     ].filter((signal) => lower.includes(signal.toLowerCase()));
+    contentSignals.push(...legacy);
   } catch (error) {
     if (error instanceof SsrfBlockedError) {
       ssrfBlocked = true;
@@ -573,9 +616,73 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
     reasons.push(`Google Safe Browsing 標記為:${types}。`);
   }
 
+  // Content-based scoring from the extracted page (HTML).
+  if (extracted) {
+    for (const { category, matches } of extracted.categories) {
+      const weight = CATEGORY_WEIGHTS[category] ?? 12;
+      riskScore += weight + Math.min(matches.length, 4) * 2;
+      reasons.push(
+        `頁面內容判定為「${CATEGORY_LABELS[category]}」傾向(命中:${matches.slice(0, 4).join("、")})。`,
+      );
+    }
+    if (extracted.suspiciousFormFields.length > 0) {
+      riskScore += 12 + extracted.suspiciousFormFields.length * 4;
+      reasons.push(
+        `頁面要求高敏感資料欄位:${extracted.suspiciousFormFields.slice(0, 4).join("、")}。`,
+      );
+    }
+    if (extracted.externalScriptHosts.length >= 6) {
+      riskScore += 6;
+      reasons.push(
+        `頁面載入較多第三方腳本(${extracted.externalScriptHosts.length} 個來源),建議再次確認。`,
+      );
+    }
+  } else if (!ssrfBlocked && !responseOk) {
+    // Already accounted for via the "回應異常" path above.
+  }
+
+  let llmContentVerdict: { verdict: "safe" | "warning" | "danger"; reason: string } | undefined;
+  if (extracted && isLlmConfigured()) {
+    llmContentVerdict = await judgeSiteWithLlm(normalizedUrl, extracted);
+    if (llmContentVerdict) {
+      if (llmContentVerdict.verdict === "danger") {
+        riskScore += 22;
+        reasons.push(`LLM 內容判讀為高風險:${llmContentVerdict.reason}`);
+      } else if (llmContentVerdict.verdict === "warning") {
+        riskScore += 10;
+        reasons.push(`LLM 內容判讀為可疑:${llmContentVerdict.reason}`);
+      }
+    }
+  }
+
   const cappedScore = Math.min(98, riskScore);
   const verdict =
     cappedScore >= 70 ? "danger" : cappedScore >= 40 ? "warning" : "safe";
+
+  const contentSignal = extracted
+    ? {
+        fetched: true,
+        title: extracted.title,
+        description: extracted.metaDescription || extracted.ogDescription,
+        lang: extracted.lang,
+        categories: extracted.categories.map(({ category, matches }) => ({
+          category,
+          label: CATEGORY_LABELS[category],
+          matches,
+        })),
+        suspiciousFormFields: extracted.suspiciousFormFields,
+        externalScriptHosts: extracted.externalScriptHosts.slice(0, 12),
+        llmVerdict: llmContentVerdict,
+      }
+    : {
+        fetched: false,
+        title: "",
+        description: "",
+        lang: "",
+        categories: [],
+        suspiciousFormFields: [],
+        externalScriptHosts: [],
+      };
 
   return {
     url: inputUrl,
@@ -601,8 +708,47 @@ export async function verifySiteUrl(inputUrl: string): Promise<SiteVerificationR
         source: phishMatch?.source,
       },
       ssrfBlocked,
+      content: contentSignal,
     },
   };
+}
+
+async function judgeSiteWithLlm(
+  url: string,
+  extracted: ExtractedSite,
+): Promise<{ verdict: "safe" | "warning" | "danger"; reason: string } | undefined> {
+  const snapshot = [
+    `URL: ${url}`,
+    `Title: ${extracted.title}`,
+    `Desc: ${extracted.metaDescription || extracted.ogDescription}`,
+    `Headings: ${extracted.headings.slice(0, 4).join(" | ")}`,
+    `SuspiciousFields: ${extracted.suspiciousFormFields.slice(0, 6).join(", ")}`,
+    `Categories: ${extracted.categories.map((c) => c.category).join(", ")}`,
+    `Text: ${extracted.textSample.slice(0, 700)}`,
+  ].join("\n");
+
+  const prompt = [
+    "你是防詐網站審查員。根據下方網站資料,判斷對台灣使用者的詐騙風險。",
+    "只輸出 JSON: {\"verdict\":\"safe|warning|danger\",\"reason\":\"30字內繁中\"}。",
+    snapshot,
+  ].join("\n");
+
+  try {
+    const reply = await chatWithLlm([{ role: "user", content: prompt }]);
+    if (!reply) return undefined;
+    const match = reply.match(/\{[\s\S]*\}/);
+    if (!match) return undefined;
+    const parsed = JSON.parse(match[0]) as { verdict?: string; reason?: string };
+    const v = parsed.verdict;
+    if (v !== "safe" && v !== "warning" && v !== "danger") return undefined;
+    return { verdict: v, reason: (parsed.reason ?? "").slice(0, 120) };
+  } catch (error) {
+    console.warn(
+      "[verifySite] LLM judgment failed:",
+      error instanceof Error ? error.message : error,
+    );
+    return undefined;
+  }
 }
 
 function buildAlert({
@@ -881,8 +1027,16 @@ async function getEmbeddingForText(input: string) {
     return null;
   }
 
-  const result = await createEmbedding(input);
-  return result?.embedding ?? null;
+  try {
+    const result = await createEmbedding(input);
+    return result?.embedding ?? null;
+  } catch (error) {
+    console.warn(
+      "[scamEngine] embedding lookup failed, falling back to keyword-only scoring:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
 }
 
 async function buildLlmAlert(input: {
@@ -896,22 +1050,30 @@ async function buildLlmAlert(input: {
     return null;
   }
 
-  const generated = await generateAlertWithLlm({
-    message: input.message,
-    matchedKeywords: input.matchedKeywords,
-    matchedEntities: input.matchedEntities.map((entity) => entity.value),
-    evidence: input.evidence.map((item) => ({
-      title: item.title,
-      source: `${item.source}/${item.board}`,
-      scamType: item.scamType,
-      snippet: item.content.slice(0, 240),
-    })),
-    riskLabel: input.riskLabel,
-  });
+  try {
+    const generated = await generateAlertWithLlm({
+      message: input.message,
+      matchedKeywords: input.matchedKeywords,
+      matchedEntities: input.matchedEntities.map((entity) => entity.value),
+      evidence: input.evidence.map((item) => ({
+        title: item.title,
+        source: `${item.source}/${item.board}`,
+        scamType: item.scamType,
+        snippet: item.content.slice(0, 240),
+      })),
+      riskLabel: input.riskLabel,
+    });
 
-  if (!generated?.summary || generated.actions.length === 0) {
+    if (!generated?.summary || generated.actions.length === 0) {
+      return null;
+    }
+
+    return generated;
+  } catch (error) {
+    console.warn(
+      "[scamEngine] LLM alert generation failed, using deterministic alert:",
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
-
-  return generated;
 }

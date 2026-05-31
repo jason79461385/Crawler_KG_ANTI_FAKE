@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { fetchGraph, fetchSnapshot, postCrawl } from "../api/client";
-import type { GraphResponse, SourceSnapshot } from "../types";
+import type { CrawlEvent, GraphResponse, SourceSnapshot } from "../types";
 
 type GraphCacheEntry = { data: GraphResponse; fetchedAt: number };
 
@@ -21,6 +21,7 @@ type SnapshotContextValue = {
   triggerCrawl: () => Promise<void>;
   prefetchGraph: (limit?: number) => Promise<GraphResponse>;
   getCachedGraph: (limit: number) => GraphResponse | null;
+  lastCrawlEvent: CrawlEvent | null;
 };
 
 const SnapshotContext = createContext<SnapshotContextValue | null>(null);
@@ -34,6 +35,7 @@ export function SnapshotProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastCrawlEvent, setLastCrawlEvent] = useState<CrawlEvent | null>(null);
 
   const prefetchGraph = useCallback(async (limit = 80): Promise<GraphResponse> => {
     const cached = graphCache.get(limit);
@@ -97,6 +99,27 @@ export function SnapshotProvider({ children }: { children: ReactNode }) {
     });
   }, [reload, prefetchGraph]);
 
+  // SSE:後端定時 crawl 完會推 'crawl' event。收到後重抓 snapshot + 重置 graph cache。
+  useEffect(() => {
+    const es = new EventSource("/api/events");
+    es.onmessage = (msg) => {
+      try {
+        const evt = JSON.parse(msg.data) as { type: string };
+        if (evt.type !== "crawl") return;
+        const crawlEvt = evt as CrawlEvent;
+        setLastCrawlEvent(crawlEvt);
+        if (crawlEvt.inserted > 0 || crawlEvt.updated > 0) {
+          void reload();
+          graphCache.clear();
+          void prefetchGraph(80).catch(() => { /* ignore */ });
+        }
+      } catch {
+        /* ignore malformed events */
+      }
+    };
+    return () => es.close();
+  }, [reload, prefetchGraph]);
+
   const value = useMemo(
     () => ({
       snapshot,
@@ -107,8 +130,9 @@ export function SnapshotProvider({ children }: { children: ReactNode }) {
       triggerCrawl,
       prefetchGraph,
       getCachedGraph,
+      lastCrawlEvent,
     }),
-    [snapshot, loading, refreshing, error, reload, triggerCrawl, prefetchGraph, getCachedGraph],
+    [snapshot, loading, refreshing, error, reload, triggerCrawl, prefetchGraph, getCachedGraph, lastCrawlEvent],
   );
 
   return <SnapshotContext.Provider value={value}>{children}</SnapshotContext.Provider>;

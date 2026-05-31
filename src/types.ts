@@ -132,6 +132,19 @@ export type SiteVerificationResponse = {
     safeBrowsing: Array<{ threatType: string; platformType: string }>;
     phishingFeed: { matched: boolean; source?: string };
     ssrfBlocked: boolean;
+    content?: {
+      fetched: boolean;
+      title: string;
+      description: string;
+      lang: string;
+      categories: Array<{ category: string; label: string; matches: string[] }>;
+      suspiciousFormFields: string[];
+      externalScriptHosts: string[];
+      llmVerdict?: {
+        verdict: "safe" | "warning" | "danger";
+        reason: string;
+      };
+    };
   };
 };
 
@@ -153,4 +166,13 @@ export type ChatRole = "user" | "assistant";
 export type ChatMessage = {
   role: ChatRole;
   content: string;
+};
+
+export type CrawlEvent = {
+  type: "crawl";
+  at: string;
+  inserted: number;
+  updated: number;
+  totalPosts: number;
+  bySource: Record<string, { inserted: number; updated: number; live: boolean }>;
 };
