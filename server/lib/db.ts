@@ -100,6 +100,7 @@ const insertPostStmt = db.prepare(`
 
 const findByUrlHashStmt = db.prepare(`SELECT id FROM posts WHERE url_hash = ? LIMIT 1`);
 const findByTitleHashStmt = db.prepare(`SELECT id FROM posts WHERE title_hash = ? LIMIT 1`);
+const findRowByIdStmt = db.prepare(`SELECT * FROM posts WHERE id = ?`);
 const allPostsStmt = db.prepare(`SELECT * FROM posts ORDER BY COALESCE(published_at, first_seen_at) DESC`);
 const recentPostsStmt = db.prepare(`SELECT * FROM posts ORDER BY COALESCE(published_at, first_seen_at) DESC LIMIT ?`);
 const countPostsStmt = db.prepare(`SELECT COUNT(*) as count FROM posts`);
@@ -113,11 +114,7 @@ export function upsertPost(post: DemoPost, live = true): "inserted" | "updated" 
   if (urlHash) {
     const existing = findByUrlHashStmt.get(urlHash) as { id: string } | undefined;
     if (existing && existing.id !== post.id) {
-      insertPostStmt.run({
-        ...toRow(post, urlHash, titleHash, now, live),
-        id: existing.id,
-        firstSeenAt: now,
-      });
+      mergeOntoExistingRow(post, existing.id, urlHash, titleHash, now, live);
       return "deduped";
     }
   }
@@ -125,11 +122,7 @@ export function upsertPost(post: DemoPost, live = true): "inserted" | "updated" 
   if (!urlHash) {
     const existing = findByTitleHashStmt.get(titleHash) as { id: string } | undefined;
     if (existing && existing.id !== post.id) {
-      insertPostStmt.run({
-        ...toRow(post, urlHash, titleHash, now, live),
-        id: existing.id,
-        firstSeenAt: now,
-      });
+      mergeOntoExistingRow(post, existing.id, urlHash, titleHash, now, live);
       return "deduped";
     }
   }
@@ -137,6 +130,53 @@ export function upsertPost(post: DemoPost, live = true): "inserted" | "updated" 
   const isNew = !db.prepare(`SELECT 1 FROM posts WHERE id = ?`).get(post.id);
   insertPostStmt.run(toRow(post, urlHash, titleHash, now, live));
   return isNew ? "inserted" : "updated";
+}
+
+// 去重時不能把舊 row 的「身份欄位」(url、source、url_hash、first_seen_at) 蓋掉。
+// 否則 demo 種子文章一旦被 crawler 抓到相似標題,就會丟失原本的來源 URL,
+// 之後在 KG 上就會看到「此案例沒有可跳轉的來源連結」的問題。
+function mergeOntoExistingRow(
+  post: DemoPost,
+  existingId: string,
+  urlHash: string | null,
+  titleHash: string,
+  now: string,
+  live: boolean,
+) {
+  const existingRow = findRowByIdStmt.get(existingId) as RawPostRow | undefined;
+  const incoming = toRow(post, urlHash, titleHash, now, live);
+  insertPostStmt.run({
+    ...incoming,
+    id: existingId,
+    // 保留首次見到時的 URL / 來源 / firstSeenAt:dedupe 時不可覆蓋。
+    url: (existingRow?.url && existingRow.url.length > 0) ? existingRow.url : incoming.url,
+    urlHash: existingRow?.url_hash ?? incoming.urlHash,
+    source: existingRow?.source ?? incoming.source,
+    firstSeenAt: existingRow?.first_seen_at ?? now,
+  });
+}
+
+// 強制以 demo 種子為準重寫 canonical 欄位(url / url_hash / source / board)。
+// 不再僅在 URL 為空時修補 —— 這是一個 force-canonical reseed,用來從過去
+// 去重邏輯造成的資料毀損中復原,所以無論現況為何都覆寫。
+export function backfillDemoUrls(demoSeed: DemoPost[]): number {
+  const stmt = db.prepare(
+    `UPDATE posts SET url = @url, url_hash = @urlHash, source = @source, board = @board
+     WHERE id = @id`,
+  );
+  let restored = 0;
+  for (const post of demoSeed) {
+    if (!post.url) continue;
+    const result = stmt.run({
+      id: post.id,
+      url: post.url,
+      urlHash: hashString(normalizeUrl(post.url)),
+      source: post.source,
+      board: post.board,
+    });
+    restored += result.changes;
+  }
+  return restored;
 }
 
 function toRow(

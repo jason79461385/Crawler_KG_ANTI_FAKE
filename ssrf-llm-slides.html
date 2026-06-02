@@ -1,0 +1,2107 @@
+<!doctype html>
+<!--
+  Flow Diagram template (with in-browser editor).
+
+  USE:
+  1. Open in a browser. Click 「✏ 編輯」 to enter edit mode.
+  2. Click any box / arrow to edit; drag boxes to reposition (snap + alignment guides).
+  3. Toolbar: + Box, + Arrow, Delete, ↶/↷, 主題, Export, Download HTML, 重置.
+  4. State auto-saves to localStorage. Export gives clean JS config.
+     「下載 HTML」 produces a self-contained file with current state baked in.
+
+  CUSTOMISE WITHOUT EDITOR:
+  - Edit `INITIAL_STATE` near the bottom of <script>.
+  - Or edit theme CSS vars + SLIDE_BG / ARROW_COLOR constants directly.
+
+  DSL ref: ../REFERENCE.md   Examples: ../EXAMPLES.md
+-->
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Flow Diagrams</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Source+Han+Sans+TC&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* slide-bg = 每張圖(section)的預覽底色,只影響 section 與 PNG 匯出 */
+    --slide-bg: #0f172a;
+    --slide-text: #f1f5f9;      /* 自動依 slide-bg 亮度切換 */
+    --slide-muted: #94a3b8;     /* 同上 */
+    /* editor chrome 永遠固定深色 */
+    --editor-bg: #0d1117;
+    --editor-ink: #e2e8f0;
+    --editor-muted: #94a3b8;
+    --arrow: #cbd5e1;
+    --font-stack: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+    --title-size: 16px;
+    --body-size: 13px;
+    --panel-width: 340px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    padding: 48px 24px 80px;
+    background: var(--editor-bg);
+    color: var(--editor-ink);
+    font-family: var(--font-stack);
+    -webkit-font-smoothing: antialiased;
+    transition: padding 0.2s;
+  }
+  body.editing { padding-right: calc(var(--panel-width) + 20px); padding-top: 88px; }
+  body.pending-add { cursor: crosshair; }
+  body.pending-add svg { cursor: crosshair; }
+
+  header.page {
+    max-width: 1640px;
+    margin: 0 auto 32px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  header.page > div { min-width: 280px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; color: #f8fafc; }
+  .subtitle { color: var(--editor-muted); margin: 0; font-size: 14px; }
+
+  /* 每張圖的 section 是「投影片預覽」, 背景=slide-bg, 跟 editor chrome 完全分離 */
+  section {
+    max-width: 1640px;
+    margin: 0 auto 24px;
+    padding: 26px 32px 32px;
+    border-radius: 20px;
+    background: var(--slide-bg);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    transition: background 0.2s;
+  }
+  section header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 6px; }
+  section h2 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em; color: var(--slide-text); }
+  section .caption { color: var(--slide-muted); margin: 0 0 22px; font-size: 13px; line-height: 1.7; max-width: 80ch; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  /* 縮放包裝:超過 viewport 時可水平/垂直捲動 */
+  .diagram-scroll { width: 100%; overflow: auto; border-radius: 8px; }
+  /* Grid:被當作 SVG background (pattern) — 只在編輯模式 + 啟用網格時 visible */
+  svg .grid-bg { pointer-events: none; }
+
+  /* Buttons */
+  button.btn {
+    background: rgba(255,255,255,0.06);
+    color: inherit;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  button.btn:hover { background: rgba(255,255,255,0.12); }
+  button.btn:disabled { opacity: 0.5; cursor: wait; }
+  button.btn.primary { background: rgba(56,189,248,0.18); border-color: rgba(56,189,248,0.4); color: #e0f2fe; }
+  button.btn.primary:hover { background: rgba(56,189,248,0.28); }
+  button.btn.danger { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.4); color: #fecaca; }
+  /* + Box / + Arrow = 主要 add action,要明顯 */
+  button.btn.action-primary {
+    background: linear-gradient(180deg, rgba(56,189,248,0.28), rgba(56,189,248,0.16));
+    border: 1px solid rgba(56,189,248,0.55);
+    color: #f0f9ff;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(56,189,248,0.15);
+  }
+  button.btn.action-primary:hover { background: linear-gradient(180deg, rgba(56,189,248,0.4), rgba(56,189,248,0.24)); box-shadow: 0 4px 12px rgba(56,189,248,0.25); }
+  button.btn.action-primary.active { background: rgba(56,189,248,0.45); border-color: rgba(56,189,248,0.8); }
+
+  /* Toolbar */
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: rgba(13,17,23,0.95); backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding: 11px 20px; z-index: 100;
+    display: none; gap: 10px; align-items: center; flex-wrap: wrap;
+    color: #e2e8f0;
+  }
+  body.editing #toolbar { display: flex; }
+  #toolbar .sep { width: 1px; height: 28px; background: rgba(255,255,255,0.15); margin: 0 4px; }
+  #toolbar .group-label { color: rgba(255,255,255,0.4); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 2px 0 4px; }
+
+  /* Action banner — 顯眼提示目前 pending action */
+  #action-banner {
+    position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(180deg, rgba(56,189,248,0.92), rgba(14,165,233,0.92));
+    color: #082f49; padding: 10px 22px;
+    border-radius: 0 0 14px 14px;
+    font-size: 14px; font-weight: 700;
+    z-index: 105; display: none;
+    box-shadow: 0 4px 16px rgba(56,189,248,0.4);
+    white-space: nowrap;
+  }
+  body.pending-add #action-banner { display: block; }
+
+  /* Side panel */
+  #panel {
+    position: fixed; top: 64px; right: 0; bottom: 0;
+    width: var(--panel-width); padding: 18px;
+    background: rgba(13,17,23,0.96); backdrop-filter: blur(8px);
+    border-left: 1px solid rgba(255,255,255,0.08);
+    overflow-y: auto; z-index: 99;
+    display: none;
+    color: #e2e8f0;
+  }
+  body.editing #panel { display: block; }
+  #panel-resize {
+    position: absolute; left: -3px; top: 0; bottom: 0; width: 8px;
+    cursor: col-resize;
+    z-index: 1;
+  }
+  #panel-resize:hover, #panel-resize.dragging { background: linear-gradient(90deg, transparent, rgba(56,189,248,0.55), transparent); }
+  #panel h3 { font-size: 13px; font-weight: 700; margin: 0 0 8px; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(255,255,255,0.5); }
+  #panel section.group { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px 14px; margin: 0 0 14px; border: 1px solid rgba(255,255,255,0.06); }
+  #panel label.row { display: flex; align-items: center; gap: 10px; font-size: 12px; margin: 6px 0; }
+  #panel label.row > span { flex: 0 0 80px; color: rgba(255,255,255,0.55); }
+  #panel input[type="text"], #panel input[type="number"], #panel textarea, #panel select {
+    flex: 1; min-width: 0; padding: 5px 8px; font-size: 12px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; color: inherit; font-family: inherit;
+  }
+  #panel textarea { resize: vertical; min-height: 50px; }
+  #panel input[type="color"] { width: 40px; height: 24px; padding: 0; border-radius: 4px; cursor: pointer; }
+  #panel input[type="range"] { flex: 1; }
+  #panel .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #panel .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  /* num-grid:X/Y/W/H 等數字輸入 — 標籤在上、input 在下,每格 50% 寬,排版乾淨 */
+  #panel .num-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  #panel .num-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: rgba(255,255,255,0.55); }
+  #panel .num-grid label > span { letter-spacing: 0.04em; }
+  #panel .num-grid input { width: 100%; padding: 6px 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: inherit; font-family: inherit; }
+  #panel .grid4 button { font-size: 11px; padding: 4px; }
+  #panel .grid4 button.active { background: rgba(56,189,248,0.25); border-color: rgba(56,189,248,0.5); }
+  #panel .empty { color: rgba(255,255,255,0.4); font-size: 12px; padding: 16px 0; text-align: center; }
+
+  /* SVG editor overlay */
+  body.editing svg .box-overlay { display: block; }
+  svg .box-overlay { display: none; fill: transparent; stroke: transparent; cursor: move; }
+  svg .box-overlay.selected ~ rect:first-of-type,
+  svg g.selected > rect:first-of-type,
+  svg g.selected > path:first-of-type { /* selection ring drawn separately */ }
+  svg .selection-ring { fill: none; stroke: #38bdf8; stroke-width: 2.5; stroke-dasharray: 6 4; pointer-events: none; }
+  /* Resize handles — 8 個藍底白邊小方塊在選取的 box 周邊 */
+  svg .resize-handle { fill: #fff; stroke: #38bdf8; stroke-width: 1.8; }
+  svg .resize-handle[data-resize="nw"], svg .resize-handle[data-resize="se"] { cursor: nwse-resize; }
+  svg .resize-handle[data-resize="ne"], svg .resize-handle[data-resize="sw"] { cursor: nesw-resize; }
+  svg .resize-handle[data-resize="n"],  svg .resize-handle[data-resize="s"]  { cursor: ns-resize; }
+  svg .resize-handle[data-resize="e"],  svg .resize-handle[data-resize="w"]  { cursor: ew-resize; }
+  /* Waypoint handles — 粉紅小圓,選取的箭頭上才看得到 */
+  svg .waypoint-handle { fill: #f472b6; stroke: #fff; stroke-width: 2; cursor: move; }
+  svg .arrow-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; }
+  body.editing svg .arrow-hit { pointer-events: stroke; }
+  svg .snap-guide { stroke: #f472b6; stroke-width: 1; stroke-dasharray: 4 4; pointer-events: none; }
+
+  /* Modal */
+  #modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+  }
+  #modal-backdrop.open { display: flex; }
+  #modal {
+    background: #0f172a; color: #e2e8f0;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+    max-width: 800px; max-height: 80vh; width: 90%;
+    padding: 22px; overflow: auto;
+  }
+  #modal h3 { margin: 0 0 12px; font-size: 16px; }
+  #modal pre {
+    background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+    padding: 14px; font-size: 12px; line-height: 1.6; overflow: auto; max-height: 50vh;
+    font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  }
+  #modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+  /* SVG text — these are overridden by CSS vars so theme.fontFamily/baseFontSize work */
+  text { font-family: var(--font-stack); user-select: none; }
+  .box-title { font-weight: 700; font-size: var(--title-size); }
+  .box-line { font-size: var(--body-size); }
+  /* arrow-label 顏色跟 slide(每張圖) 的 text 顏色一致,不被 editor chrome 影響 */
+  .arrow-label { font-size: 12px; fill: var(--slide-text); }
+</style>
+</head>
+<body>
+
+<!-- ===== Toolbar (only in edit mode) ===== -->
+<div id="toolbar">
+  <span class="group-label">新增</span>
+  <button class="btn action-primary" id="btn-add-box" title="新增方塊">＋ Box</button>
+  <button class="btn action-primary" id="btn-add-arrow" title="新增箭頭">→ Arrow</button>
+  <div class="sep"></div>
+  <button class="btn danger" id="btn-delete" title="Del">刪除</button>
+  <div class="sep"></div>
+  <span class="group-label">歷史</span>
+  <button class="btn" id="btn-undo" title="Cmd+Z">↶</button>
+  <button class="btn" id="btn-redo" title="Cmd+Shift+Z">↷</button>
+  <div class="sep"></div>
+  <span class="group-label">檢視</span>
+  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:rgba(255,255,255,0.75)">
+    <input type="checkbox" id="opt-grid"> 網格
+  </label>
+  <button class="btn" id="btn-zoom-out" title="Cmd+-">−</button>
+  <button class="btn" id="btn-zoom-label" style="min-width:48px" title="點擊回 100%">100%</button>
+  <button class="btn" id="btn-zoom-in" title="Cmd+=">＋</button>
+  <button class="btn" id="btn-zoom-fit" title="符合寬度">適合</button>
+  <span id="coord-readout" style="font-family:'Menlo','Monaco',monospace;font-size:11px;color:rgba(255,255,255,0.55);min-width:90px;padding:0 4px">x: — &nbsp; y: —</span>
+  <div class="sep"></div>
+  <span class="group-label">輸入</span>
+  <button class="btn" id="btn-mermaid" title="貼上 Mermaid 語法自動產生圖">📥 Mermaid</button>
+  <div class="sep"></div>
+  <span class="group-label">輸出</span>
+  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,0.75);padding:0 4px;cursor:pointer">
+    <input type="checkbox" id="opt-transparent"> 透明背景
+  </label>
+  <button class="btn" id="btn-export">Export JS</button>
+  <button class="btn" id="btn-download-html">下載 HTML</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-reset" title="重置為內建範例">重置</button>
+</div>
+
+<!-- 顯眼的 pending action 提示橫幅 -->
+<div id="action-banner">點圖中位置以放置 box · Esc 取消</div>
+
+<!-- ===== Side panel (only in edit mode) ===== -->
+<aside id="panel">
+  <div id="panel-resize" title="拖曳調整面板寬度"></div>
+  <section class="group" id="theme-group">
+    <h3>主題</h3>
+    <label class="row"><span>背景</span><input type="color" id="theme-bg"></label>
+    <label class="row"><span>箭頭</span><input type="color" id="theme-arrow"></label>
+    <label class="row"><span>字型</span>
+      <select id="theme-font">
+        <option value="'Inter', 'Noto Sans TC', system-ui, sans-serif">Inter + 思源</option>
+        <option value="'Noto Sans TC', 'PingFang TC', sans-serif">Noto Sans TC</option>
+        <option value="'PingFang TC', 'Microsoft JhengHei', sans-serif">PingFang TC</option>
+        <option value="'Source Han Sans TC', sans-serif">思源黑體</option>
+        <option value="system-ui, sans-serif">System UI</option>
+        <option value="Georgia, 'Noto Serif TC', serif">Georgia + 思源</option>
+      </select>
+    </label>
+  </section>
+
+  <section class="group" id="selection-group">
+    <h3>選取項目</h3>
+    <div id="selection-body"><div class="empty">點圖中的 box 或箭頭來編輯</div></div>
+  </section>
+
+  <section class="group">
+    <h3>圖表清單</h3>
+    <div id="diagram-list"></div>
+  </section>
+</aside>
+
+<!-- ===== Modal (export / mermaid import) ===== -->
+<div id="modal-backdrop">
+  <div id="modal">
+    <h3 id="modal-title">Export</h3>
+    <div id="modal-body-wrap">
+      <pre id="modal-body"></pre>
+    </div>
+    <div id="modal-actions">
+      <button class="btn" id="modal-copy">複製</button>
+      <button class="btn" id="modal-close">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Mermaid import modal ===== -->
+<div id="mermaid-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:200">
+  <div style="background:#0f172a;color:#e2e8f0;border:1px solid rgba(255,255,255,0.12);border-radius:14px;max-width:780px;width:92%;max-height:88vh;padding:22px;overflow:auto;display:flex;flex-direction:column;gap:14px">
+    <h3 style="margin:0;font-size:16px">從 Mermaid 語法匯入</h3>
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.6);line-height:1.6">
+      支援 <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">graph LR</code> /
+      <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">flowchart TD</code> +
+      矩形 <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">A[Text]</code> ·
+      菱形 <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">B{Text}</code> ·
+      圓柱 <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">C[(DB)]</code> ·
+      箭頭 <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">--&gt;</code> /
+      <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">-.-&gt;</code> /
+      <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">--&gt;|label|</code>
+    </p>
+    <textarea id="mermaid-input" rows="14" style="width:100%;padding:12px;font-family:'Menlo','Monaco',monospace;font-size:13px;line-height:1.5;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e2e8f0;resize:vertical" placeholder="graph LR&#10;  A[使用者] --&gt; B{驗證?}&#10;  B --&gt;|通過| C[Dashboard]&#10;  B --&gt;|失敗| D[登入頁]&#10;  C --&gt; E[(資料庫)]"></textarea>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="mermaid-optimize" checked><span>套用樣式優化 (依節點種類自動配色)</span></label>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" id="mermaid-replace" title="取代當前圖">解析並取代</button>
+      <button class="btn primary" id="mermaid-append">解析並新增</button>
+      <button class="btn" id="mermaid-cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Page content ===== -->
+<header class="page">
+  <div>
+    <h1 id="page-title">Flow Diagrams</h1>
+    <p class="subtitle" id="page-subtitle">edit me — 點右上「編輯」開啟視覺化編輯器</p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button class="btn primary" id="btn-edit-toggle">✏ 編輯</button>
+    <button class="btn" id="dl-all-png">下載全部 PNG</button>
+    <button class="btn" id="dl-all-svg">下載全部 SVG</button>
+  </div>
+</header>
+
+<main id="diagrams"></main>
+
+<script>
+// =============================================================================
+// Constants & state
+// =============================================================================
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+// 用檔名 scope localStorage,避免不同 flow-diagram HTML 共用同一個 key 相互覆蓋
+const STORAGE_KEY = 'flow-diagram-state-v1:' + (location.pathname.split('/').pop() || 'default');
+
+const STYLES = {
+  ui:         { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a8a' },
+  core:       { fill: '#fed7aa', stroke: '#ea580c', text: '#7c2d12' },
+  perception: { fill: '#ccfbf1', stroke: '#0d9488', text: '#134e4a' },
+  graph:      { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
+  planning:   { fill: '#fce7f3', stroke: '#db2777', text: '#831843' },
+  skills:     { fill: '#fef9c3', stroke: '#ca8a04', text: '#713f12' },
+  storage:    { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' },
+  ext:        { fill: '#f1f5f9', stroke: '#64748b', text: '#334155' },
+  io:         { fill: '#e0f2fe', stroke: '#0284c7', text: '#0c4a6e' },
+  warn:       { fill: '#fee2e2', stroke: '#dc2626', text: '#7f1d1d' },
+};
+const STYLE_KEYS = Object.keys(STYLES);
+
+const DEFAULT_STATE = () => ({
+  pageTitle: 'SSRF 三道防線 + LLM 內容判讀',
+  pageSubtitle: 'Scam Intel Console — verify-site 多層防護的兩條核心流水線',
+  theme: {
+    slideBg: '#0f172a',
+    arrowColor: '#cbd5e1',
+    fontFamily: "'Inter', 'Noto Sans TC', system-ui, sans-serif",
+    titleSize: 16,
+    bodySize: 13,
+    lightMode: false,
+  },
+  diagrams: [
+    // ====== Diagram 1: SSRF 三道防線 ======
+    {
+      id: 'd1',
+      title: 'SSRF 三道防線:從攻擊面到連線釘選',
+      caption: 'verify-site 直接 fetch 使用者輸入 URL → 可被當跳板探測內網 / metadata 服務(169.254.169.254、127.0.0.1、fc00::/7…)',
+      filename: 'ssrf-three-gates',
+      viewBox: { w: 1400, h: 580 },
+      boxes: [
+        { id: 'url',   x: 30,   y: 200, w: 180, h: 80,  style: 'io',
+          label: 'User Input\nURL' },
+
+        { id: 'gate1', x: 240,  y: 130, w: 280, h: 220, style: 'warn',
+          label: '進來 · 攻擊面\nIPv4 libc 四種寫法\nHex + Octal 編碼\nIPv4-mapped IPv6\nZone ID 別名\nHostname / Scheme allowlist' },
+
+        { id: 'gate2', x: 560,  y: 130, w: 280, h: 220, style: 'skills',
+          label: '驗證 · 規範化\nIPv4 CIDR ×14\nIPv6 CIDR ×9\nIPv4-mapped 遞迴\nDNS all:true 私網\n任一筆即 reject' },
+
+        { id: 'gate3', x: 880,  y: 130, w: 280, h: 220, style: 'graph',
+          label: '連線 · IP pinning\nmakePinnedAgent (undici)\nManual redirect 重驗\nTimeout 5s\n256KB stream cap' },
+
+        { id: 'egress', x: 1200, y: 200, w: 170, h: 80, style: 'io',
+          label: 'Safe egress\nHTTP / HTTPS only' },
+
+        { id: 'rebind', x: 880, y: 430, w: 280, h: 100, style: 'warn',
+          label: 'Attacker DNS rebinding\nTTL=0, 第二次 resolve\n回 169.254.169.254' },
+      ],
+      arrows: [
+        { from: 'url',    to: 'gate1',  sides: ['right','left'] },
+        { from: 'gate1',  to: 'gate2',  sides: ['right','left'] },
+        { from: 'gate2',  to: 'gate3',  sides: ['right','left'] },
+        { from: 'gate3',  to: 'egress', sides: ['right','left'] },
+        { from: 'rebind', to: 'gate3',  sides: ['top','bottom'], dashed: true,
+          label: 'TCP 已釘選 → 失效' },
+      ],
+    },
+
+    // ====== Diagram 2: LLM 判讀流水線 ======
+    {
+      id: 'd2',
+      title: 'LLM 對精細包裝釣魚網站的判別',
+      caption: '規則式擋不到的,LLM 看內容做語意判斷 — 以 twogamb.at 為例',
+      filename: 'llm-content-judge',
+      viewBox: { w: 1640, h: 360 },
+      boxes: [
+        { id: 'url',      x: 30,   y: 170, w: 210, h: 100, style: 'io',
+          label: 'twogamb.at\nURL · HTTPS · .at\nURL 字面乾淨' },
+
+        { id: 'rule',     x: 280,  y: 130, w: 250, h: 180, style: 'ext',
+          label: 'Rule Layer (URL only)\nTLD 合法\n無 suspiciousKeywords\n威脅情資未命中\nURL 評分 <40 → safe' },
+
+        { id: 'snapshot', x: 560,  y: 130, w: 260, h: 180, style: 'ui',
+          label: 'Site Snapshot\nsiteContent.ts\ntitle / desc / headings\n6000字 body + 32 表單\nCATEGORY 命中 \'gamb\'' },
+
+        { id: 'judge',    x: 850,  y: 130, w: 260, h: 180, style: 'graph',
+          label: 'judgeSiteWithLlm\n7-line user prompt\nJSON {verdict, reason}\nregex + 白名單驗證' },
+
+        { id: 'merge',    x: 1140, y: 130, w: 240, h: 180, style: 'skills',
+          label: 'Score Merge\ndanger +22 / warning +10\nsignals.content.llmVerdict\ncap 98' },
+
+        { id: 'payoff',   x: 1410, y: 170, w: 210, h: 100, style: 'warn',
+          label: 'twogamb.at\n0 → +28 → +22\ndanger ≥ 70' },
+      ],
+      arrows: [
+        { from: 'url',      to: 'rule',     sides: ['right','left'] },
+        { from: 'rule',     to: 'snapshot', sides: ['right','left'] },
+        { from: 'snapshot', to: 'judge',    sides: ['right','left'] },
+        { from: 'judge',    to: 'merge',    sides: ['right','left'] },
+        { from: 'merge',    to: 'payoff',   sides: ['right','left'] },
+      ],
+    },
+  ],
+});
+
+// Validate loaded state — falls back to DEFAULT_STATE if any required structure is missing.
+// Also accepts ?reset=1 URL param to force a fresh state.
+function normalizeState(s) {
+  if (!s || typeof s !== 'object') return DEFAULT_STATE();
+  const def = DEFAULT_STATE();
+  if (!s.theme || typeof s.theme !== 'object') s.theme = def.theme;
+  for (const k of Object.keys(def.theme)) if (s.theme[k] == null) s.theme[k] = def.theme[k];
+  if (!s.editor || typeof s.editor !== 'object') s.editor = { showGrid: false, zoom: 'fit' };
+  if (s.editor.showGrid == null) s.editor.showGrid = false;
+  if (s.editor.zoom == null) s.editor.zoom = 'fit';
+  if (!Array.isArray(s.diagrams) || s.diagrams.length === 0) s.diagrams = def.diagrams;
+  s.diagrams.forEach((d, i) => {
+    if (!d.id) d.id = 'd' + (i + 1);
+    if (!d.title) d.title = '圖表 ' + (i + 1);
+    if (!d.caption) d.caption = '';
+    if (!d.filename) d.filename = d.id;
+    if (!d.viewBox || typeof d.viewBox.w !== 'number' || typeof d.viewBox.h !== 'number') d.viewBox = { w: 1200, h: 500 };
+    if (!Array.isArray(d.boxes)) d.boxes = [];
+    if (!Array.isArray(d.arrows)) d.arrows = [];
+  });
+  if (s.pageTitle == null) s.pageTitle = def.pageTitle;
+  if (s.pageSubtitle == null) s.pageSubtitle = def.pageSubtitle;
+  return s;
+}
+
+const urlParams = new URLSearchParams(location.search);
+if (urlParams.has('reset')) {
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+}
+
+let state = normalizeState(loadState() || DEFAULT_STATE());
+let editMode = false;
+let selection = { diagramId: null, kind: null, itemId: null };
+let pendingAction = null;
+let dragging = null;
+const history = { stack: [JSON.parse(JSON.stringify(state))], cursor: 0, limit: 50 };
+
+function cloneState() { return JSON.parse(JSON.stringify(state)); }
+function loadState() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; }
+  catch { return null; }
+}
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+function commit() {
+  // Push current state to history, trim forward branches.
+  history.stack = history.stack.slice(0, history.cursor + 1);
+  history.stack.push(cloneState());
+  if (history.stack.length > history.limit) history.stack.shift();
+  history.cursor = history.stack.length - 1;
+  saveState();
+  refreshUndoRedoButtons();
+}
+function undo() {
+  if (history.cursor === 0) return;
+  history.cursor--;
+  state = JSON.parse(JSON.stringify(history.stack[history.cursor]));
+  selection = { diagramId: null, kind: null, itemId: null };
+  saveState();
+  renderAll();
+  refreshUndoRedoButtons();
+}
+function redo() {
+  if (history.cursor >= history.stack.length - 1) return;
+  history.cursor++;
+  state = JSON.parse(JSON.stringify(history.stack[history.cursor]));
+  selection = { diagramId: null, kind: null, itemId: null };
+  saveState();
+  renderAll();
+  refreshUndoRedoButtons();
+}
+function refreshUndoRedoButtons() {
+  document.getElementById('btn-undo').disabled = history.cursor === 0;
+  document.getElementById('btn-redo').disabled = history.cursor >= history.stack.length - 1;
+}
+
+// =============================================================================
+// SVG helpers
+// =============================================================================
+
+function el(tag, attrs = {}) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+  return e;
+}
+
+function svgPoint(svg, evt) {
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+// =============================================================================
+// Rendering — boxes
+// =============================================================================
+
+function ensureDefs(svg) {
+  if (svg.querySelector('defs')) return;
+  const defs = el('defs');
+  const marker = el('marker', {
+    id: 'arrow-' + svg.id, viewBox: '0 0 10 10', refX: 9, refY: 5,
+    markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
+  });
+  marker.appendChild(el('path', { d: 'M0,0 L10,5 L0,10 z', fill: state.theme.arrowColor }));
+  defs.appendChild(marker);
+
+  // Grid pattern 的顏色依 slide-bg 亮度自動對比 — 深色底用白點、淺色底用黑點
+  const isLightBg = !!state.theme.lightMode;
+  const dotFill   = isLightBg ? 'rgba(15,23,42,0.28)'  : 'rgba(255,255,255,0.22)';
+  const midFill   = isLightBg ? 'rgba(15,23,42,0.45)'  : 'rgba(255,255,255,0.38)';
+  const crossClr  = isLightBg ? 'rgba(15,23,42,0.55)'  : 'rgba(255,255,255,0.48)';
+
+  const pat = el('pattern', { id: 'grid-' + svg.id, width: 100, height: 100, patternUnits: 'userSpaceOnUse' });
+  // 10px 基本 dot;50px (中點) 加大加亮
+  for (let i = 0; i <= 100; i += 10) for (let j = 0; j <= 100; j += 10) {
+    if (i % 100 === 0 || j % 100 === 0) continue;
+    const isMid = (i === 50 || j === 50);
+    pat.appendChild(el('circle', {
+      cx: i, cy: j,
+      r: isMid ? 0.9 : 0.7,
+      fill: isMid ? midFill : dotFill,
+    }));
+  }
+  // 100px 主格點:十字加大
+  pat.appendChild(el('path', { d: 'M0,0 L10,0 M0,0 L0,10', stroke: crossClr, 'stroke-width': 0.9 }));
+  defs.appendChild(pat);
+
+  svg.appendChild(defs);
+}
+
+// 把 grid pattern 鋪在最底層;只有編輯模式 + opt-grid 勾選才畫。
+function drawGrid(svg, diagram) {
+  if (!editMode) return;
+  if (!state.editor?.showGrid) return;
+  svg.appendChild(el('rect', {
+    class: 'grid-bg',
+    x: 0, y: 0, width: diagram.viewBox.w, height: diagram.viewBox.h,
+    fill: 'url(#grid-' + svg.id + ')',
+  }));
+}
+
+function drawBox(svg, box, diagram) {
+  const base = STYLES[box.style] || STYLES.core;
+  const fill = box.customFill || base.fill;
+  const stroke = box.customStroke || base.stroke;
+  const text = box.customText || base.text;
+  const titleSize = box.fontSize || state.theme.titleSize;
+  const bodySize = box.bodyFontSize || state.theme.bodySize;
+
+  const g = el('g', { 'data-box-id': box.id, 'data-diagram-id': diagram.id });
+
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  if (box.shape === 'db') {
+    const ry = 12;
+    g.appendChild(el('rect', { x: box.x, y: box.y + ry, width: box.w, height: box.h - 2 * ry, fill, stroke, 'stroke-width': 1.8 }));
+    g.appendChild(el('ellipse', { cx, cy: box.y + ry, rx: box.w / 2, ry, fill, stroke, 'stroke-width': 1.8 }));
+    g.appendChild(el('ellipse', { cx, cy: box.y + box.h - ry, rx: box.w / 2, ry, fill: 'transparent', stroke, 'stroke-width': 1.8 }));
+  } else if (box.shape === 'diamond') {
+    const pts = [[cx, box.y], [box.x + box.w, cy], [cx, box.y + box.h], [box.x, cy]];
+    g.appendChild(el('polygon', { points: pts.map(p => p.join(',')).join(' '), fill, stroke, 'stroke-width': 1.8, 'stroke-linejoin': 'round' }));
+  } else if (box.shape === 'circle') {
+    g.appendChild(el('ellipse', { cx, cy, rx: box.w / 2, ry: box.h / 2, fill, stroke, 'stroke-width': 1.8 }));
+  } else if (box.shape === 'hexagon') {
+    const inset = Math.min(box.h * 0.3, box.w * 0.22);
+    const pts = [
+      [box.x + inset, box.y], [box.x + box.w - inset, box.y],
+      [box.x + box.w, cy],
+      [box.x + box.w - inset, box.y + box.h], [box.x + inset, box.y + box.h],
+      [box.x, cy],
+    ];
+    g.appendChild(el('polygon', { points: pts.map(p => p.join(',')).join(' '), fill, stroke, 'stroke-width': 1.8, 'stroke-linejoin': 'round' }));
+  } else {
+    g.appendChild(el('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 14, ry: 14, fill, stroke, 'stroke-width': 1.8 }));
+  }
+
+  const lines = (box.label || '').split('\n');
+  const lineGap = Math.max(titleSize, bodySize) * 1.25;
+  const totalH = titleSize + (lines.length - 1) * lineGap;
+  let y = box.y + box.h / 2 - totalH / 2 + titleSize * 0.85;
+  lines.forEach((line, i) => {
+    const t = el('text', {
+      x: box.x + box.w / 2, y, 'text-anchor': 'middle',
+      'font-size': i === 0 ? titleSize : bodySize,
+      'font-weight': i === 0 ? '700' : '400',
+      fill: text,
+    });
+    t.textContent = line;
+    g.appendChild(t);
+    y += i === 0 ? titleSize * 1.4 : lineGap;
+  });
+
+  // Editor overlay — captures mouse for drag/select even on top of text
+  const overlay = el('rect', {
+    class: 'box-overlay',
+    x: box.x, y: box.y, width: box.w, height: box.h,
+    'data-box-id': box.id, 'data-diagram-id': diagram.id,
+  });
+  g.appendChild(overlay);
+
+  svg.appendChild(g);
+
+  if (selection.kind === 'box' && selection.diagramId === diagram.id && selection.itemId === box.id) {
+    svg.appendChild(el('rect', {
+      class: 'selection-ring',
+      x: box.x - 5, y: box.y - 5, width: box.w + 10, height: box.h + 10,
+      rx: 18, ry: 18,
+    }));
+    // 8 個 resize handles:四角 + 四邊中點
+    const HS = 5; // half-size
+    const handlePositions = [
+      { cx: box.x,            cy: box.y,             dir: 'nw' },
+      { cx: box.x + box.w/2,  cy: box.y,             dir: 'n'  },
+      { cx: box.x + box.w,    cy: box.y,             dir: 'ne' },
+      { cx: box.x + box.w,    cy: box.y + box.h/2,   dir: 'e'  },
+      { cx: box.x + box.w,    cy: box.y + box.h,     dir: 'se' },
+      { cx: box.x + box.w/2,  cy: box.y + box.h,     dir: 's'  },
+      { cx: box.x,            cy: box.y + box.h,     dir: 'sw' },
+      { cx: box.x,            cy: box.y + box.h/2,   dir: 'w'  },
+    ];
+    for (const h of handlePositions) {
+      svg.appendChild(el('rect', {
+        class: 'resize-handle',
+        x: h.cx - HS, y: h.cy - HS, width: HS * 2, height: HS * 2,
+        'data-resize': h.dir,
+        'data-box-id': box.id, 'data-diagram-id': diagram.id,
+      }));
+    }
+  }
+}
+
+// =============================================================================
+// Rendering — arrows
+// =============================================================================
+
+// 線端往 box 邊緣「外」推 EDGE_GAP px,讓箭頭尖端落在 box 外、不會覆蓋到 box 邊角。
+const EDGE_GAP = 3;
+function edgePoint(box, side, frac = 0.5) {
+  switch (side) {
+    case 'left':   return [box.x - EDGE_GAP,         box.y + box.h * frac];
+    case 'right':  return [box.x + box.w + EDGE_GAP, box.y + box.h * frac];
+    case 'top':    return [box.x + box.w * frac,     box.y - EDGE_GAP];
+    case 'bottom': return [box.x + box.w * frac,     box.y + box.h + EDGE_GAP];
+  }
+}
+
+function arrowPath(arrow, boxesById) {
+  const from = boxesById[arrow.from];
+  const to = boxesById[arrow.to];
+  if (!from || !to) return null;
+  const fromSide = arrow.sides ? arrow.sides[0] : 'right';
+  const toSide = arrow.sides ? arrow.sides[1] : 'left';
+  const [x1, y1] = edgePoint(from, fromSide, arrow.fromFrac ?? 0.5);
+  const [x2, y2] = edgePoint(to, toSide, arrow.toFrac ?? 0.5);
+
+  // 路徑點(waypoints)模式:把箭頭依序拉過多個使用者指定的點。
+  // 與 arrow.curve 結合:有 curve → catmull-rom 平滑;沒 curve → 直角折線。
+  const wps = Array.isArray(arrow.waypoints) ? arrow.waypoints : [];
+  if (wps.length > 0) {
+    const pts = [[x1, y1], ...wps.map(w => [w.x, w.y]), [x2, y2]];
+    const d = arrow.curve ? catmullRomPath(pts) : 'M' + pts.map(p => p.join(',')).join(' L');
+    return { d, x1, y1, x2, y2 };
+  }
+
+  // 沒 waypoints:原本的 cubic-bezier 行為,但 curvature 可調強度(0=接近直線,2=超彎)
+  let d;
+  if (arrow.curve) {
+    const c = (arrow.curvature ?? 1);
+    let cp1x, cp1y, cp2x, cp2y;
+    const horiz = fromSide === 'right' || fromSide === 'left';
+    if (horiz) {
+      const sign = fromSide === 'right' ? 1 : -1;
+      const len = Math.max(40, Math.abs(x2 - x1) * 0.5) * c;
+      cp1x = x1 + sign * len; cp1y = y1;
+      const sign2 = toSide === 'right' ? 1 : -1;
+      cp2x = x2 + sign2 * len; cp2y = y2;
+    } else {
+      const sign = fromSide === 'bottom' ? 1 : -1;
+      const len = Math.max(40, Math.abs(y2 - y1) * 0.5) * c;
+      cp1x = x1; cp1y = y1 + sign * len;
+      const sign2 = toSide === 'bottom' ? 1 : -1;
+      cp2x = x2; cp2y = y2 + sign2 * len;
+    }
+    d = `M${x1},${y1} C${cp1x},${cp1y} ${cp2x},${cp2y} ${x2},${y2}`;
+  } else {
+    d = `M${x1},${y1} L${x2},${y2}`;
+  }
+  return { d, x1, y1, x2, y2 };
+}
+
+// Catmull-Rom 樣條經過所有 control point 並做平滑;轉為 SVG cubic 多段。
+function catmullRomPath(pts) {
+  if (pts.length < 2) return '';
+  if (pts.length === 2) return `M${pts[0][0]},${pts[0][1]} L${pts[1][0]},${pts[1][1]}`;
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || p2;
+    const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+  }
+  return d;
+}
+
+function drawArrow(svg, arrow, idx, boxesById, diagram) {
+  const p = arrowPath(arrow, boxesById);
+  if (!p) return;
+  const isSelected = selection.kind === 'arrow' && selection.diagramId === diagram.id && selection.itemId === idx;
+  const stroke = arrow.color || state.theme.arrowColor;
+
+  const path = el('path', {
+    d: p.d, fill: 'none',
+    stroke: isSelected ? '#38bdf8' : stroke,
+    'stroke-width': isSelected ? 2.6 : 1.8,
+    'marker-end': 'url(#arrow-' + svg.id + ')',
+  });
+  if (arrow.dashed) path.setAttribute('stroke-dasharray', '6 4');
+  if (arrow.bidirectional) path.setAttribute('marker-start', 'url(#arrow-' + svg.id + ')');
+  svg.appendChild(path);
+
+  // Hit area for clicking — wider invisible stroke
+  const hit = el('path', {
+    class: 'arrow-hit', d: p.d, fill: 'none',
+    'data-arrow-idx': String(idx), 'data-diagram-id': diagram.id,
+  });
+  svg.appendChild(hit);
+
+  if (arrow.label) {
+    const lx = (p.x1 + p.x2) / 2 + (arrow.labelOffset?.dx || 0);
+    const ly = (p.y1 + p.y2) / 2 + (arrow.labelOffset?.dy || 0);
+    const w = Math.max(arrow.label.length * 8 + 18, 40);
+    const h = 22;
+    const labelBgFill = state.theme.lightMode ? 'white' : '#1e293b';
+    const labelBgStroke = state.theme.lightMode ? '#e2e8f0' : '#475569';
+    svg.appendChild(el('rect', {
+      x: lx - w / 2, y: ly - h / 2, width: w, height: h, rx: 11, ry: 11,
+      fill: labelBgFill, stroke: labelBgStroke, 'stroke-width': 1,
+    }));
+    const t = el('text', { x: lx, y: ly + 4, 'text-anchor': 'middle', class: 'arrow-label' });
+    t.textContent = arrow.label;
+    svg.appendChild(t);
+  }
+
+  // 選取時:渲染 waypoint handles(粉紅小圓),拖曳可移動;雙擊可刪除。
+  if (isSelected && Array.isArray(arrow.waypoints)) {
+    arrow.waypoints.forEach((wp, wi) => {
+      const h = el('circle', {
+        class: 'waypoint-handle',
+        cx: wp.x, cy: wp.y, r: 6,
+        'data-arrow-idx': String(idx),
+        'data-waypoint-idx': String(wi),
+        'data-diagram-id': diagram.id,
+      });
+      svg.appendChild(h);
+    });
+  }
+}
+
+// =============================================================================
+// Rendering — orchestrate
+// =============================================================================
+
+function renderDiagram(diagram) {
+  const svg = document.getElementById(diagram.id);
+  if (!svg) return;
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', `0 0 ${diagram.viewBox.w} ${diagram.viewBox.h}`);
+  ensureDefs(svg);
+  drawGrid(svg, diagram);
+
+  const boxesById = {};
+  diagram.boxes.forEach(b => { boxesById[b.id] = b; });
+
+  diagram.boxes.forEach(b => drawBox(svg, b, diagram));
+  diagram.arrows.forEach((a, idx) => drawArrow(svg, a, idx, boxesById, diagram));
+
+  applyZoom(svg, diagram);
+}
+
+// Zoom 由 state.editor.zoom 控:數字 = 該數值倍率;'fit' = 100% width。
+function applyZoom(svg, diagram) {
+  if (!svg) return;
+  const z = state.editor?.zoom;
+  if (z == null || z === 'fit') { svg.style.width = '100%'; svg.style.height = 'auto'; }
+  else { svg.style.width = (diagram.viewBox.w * z) + 'px'; svg.style.height = 'auto'; }
+}
+
+function setZoom(z) {
+  state.editor = state.editor || {};
+  state.editor.zoom = z;
+  for (const d of state.diagrams) {
+    applyZoom(document.getElementById(d.id), d);
+  }
+  const lbl = document.getElementById('btn-zoom-label');
+  if (lbl) lbl.textContent = z === 'fit' ? '適合' : Math.round(z * 100) + '%';
+  saveState();
+}
+
+function renderPageMeta() {
+  document.getElementById('page-title').textContent = state.pageTitle;
+  document.getElementById('page-subtitle').textContent = state.pageSubtitle;
+  document.documentElement.style.setProperty('--slide-bg', state.theme.slideBg);
+  document.documentElement.style.setProperty('--font-stack', state.theme.fontFamily);
+  document.documentElement.style.setProperty('--title-size', state.theme.titleSize + 'px');
+  document.documentElement.style.setProperty('--body-size', state.theme.bodySize + 'px');
+  // 依 slide-bg 亮度切 slide 內部的文字色 — 只影響 section 與 SVG arrow-label,
+  // 不影響 editor chrome(toolbar / panel / body)。
+  const isLight = bgIsLight(state.theme.slideBg);
+  state.theme.lightMode = isLight;
+  document.documentElement.style.setProperty('--slide-text',  isLight ? '#1c1917' : '#f1f5f9');
+  document.documentElement.style.setProperty('--slide-muted', isLight ? '#57534e' : '#94a3b8');
+}
+
+function bgIsLight(hex) {
+  const m = hex.replace('#', '');
+  const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 160;
+}
+
+function renderDiagramsContainer() {
+  const main = document.getElementById('diagrams');
+  main.innerHTML = '';
+  for (const d of state.diagrams) {
+    const sec = document.createElement('section');
+    sec.dataset.diagram = d.id;
+    sec.dataset.filename = d.filename || d.id;
+    sec.innerHTML = `
+      <header>
+        <h2 contenteditable="false" data-edit-title="${d.id}">${escapeHtml(d.title)}</h2>
+        <div style="display:flex;gap:6px">
+          <button class="btn" data-dl-png="${d.id}">PNG</button>
+          <button class="btn" data-dl-svg="${d.id}">SVG</button>
+        </div>
+      </header>
+      <p class="caption" contenteditable="false" data-edit-caption="${d.id}">${escapeHtml(d.caption || '')}</p>
+      <div class="diagram-scroll">
+        <svg id="${d.id}" viewBox="0 0 ${d.viewBox.w} ${d.viewBox.h}"></svg>
+      </div>
+    `;
+    main.appendChild(sec);
+  }
+  renderEditableTitles();
+}
+
+function renderEditableTitles() {
+  for (const t of document.querySelectorAll('[data-edit-title]')) {
+    t.contentEditable = editMode ? 'true' : 'false';
+    t.onblur = () => { const d = diagramById(t.dataset.editTitle); if (d) { d.title = t.textContent.trim(); commit(); } };
+  }
+  for (const t of document.querySelectorAll('[data-edit-caption]')) {
+    t.contentEditable = editMode ? 'true' : 'false';
+    t.onblur = () => { const d = diagramById(t.dataset.editCaption); if (d) { d.caption = t.textContent.trim(); commit(); } };
+  }
+}
+
+function renderAll() {
+  renderPageMeta();
+  renderDiagramsContainer();
+  for (const d of state.diagrams) renderDiagram(d);
+  renderPanel();
+  wireDiagramListeners();
+  setupDownloadButtons();
+  if (typeof wireCoordReadout === 'function') wireCoordReadout();
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function diagramById(id) { return state.diagrams.find(d => d.id === id); }
+function boxById(diag, id) { return diag.boxes.find(b => b.id === id); }
+
+// =============================================================================
+// Selection
+// =============================================================================
+
+function select(diagramId, kind, itemId) {
+  selection = { diagramId, kind, itemId };
+  renderAll();
+}
+
+function clearSelection() {
+  selection = { diagramId: null, kind: null, itemId: null };
+  renderAll();
+}
+
+// =============================================================================
+// Drag + snap + alignment guides
+// =============================================================================
+
+const SNAP_THRESHOLD = 8;
+const GRID = 10;
+
+function startDrag(diagram, box, evt) {
+  const svg = document.getElementById(diagram.id);
+  const pt = svgPoint(svg, evt);
+  dragging = {
+    diagramId: diagram.id,
+    boxId: box.id,
+    offsetX: pt.x - box.x,
+    offsetY: pt.y - box.y,
+    origin: { x: box.x, y: box.y },
+    moved: false,
+  };
+
+  function onMove(e) {
+    const p = svgPoint(svg, e);
+    let nx = Math.round((p.x - dragging.offsetX) / GRID) * GRID;
+    let ny = Math.round((p.y - dragging.offsetY) / GRID) * GRID;
+    const snap = computeSnap(diagram, box, nx, ny);
+    box.x = snap.x;
+    box.y = snap.y;
+    dragging.moved = true;
+    renderDiagram(diagram);
+    drawSnapGuides(diagram, snap);
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (dragging.moved) commit();
+    dragging = null;
+    renderAll(); // clears guides
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function computeSnap(diagram, thisBox, proposedX, proposedY) {
+  const others = diagram.boxes.filter(b => b.id !== thisBox.id);
+  const targetsX = [];
+  const targetsY = [];
+  for (const o of others) {
+    targetsX.push({ pos: o.x,             box: o }, { pos: o.x + o.w,       box: o }, { pos: o.x + o.w / 2,   box: o });
+    targetsY.push({ pos: o.y,             box: o }, { pos: o.y + o.h,       box: o }, { pos: o.y + o.h / 2,   box: o });
+  }
+  const myXs = [proposedX, proposedX + thisBox.w, proposedX + thisBox.w / 2];
+  const myYs = [proposedY, proposedY + thisBox.h, proposedY + thisBox.h / 2];
+
+  let bestX = { delta: 0, dist: Infinity, line: null };
+  let bestY = { delta: 0, dist: Infinity, line: null };
+  for (const m of myXs) for (const t of targetsX) {
+    const d = Math.abs(m - t.pos);
+    if (d <= SNAP_THRESHOLD && d < bestX.dist) bestX = { delta: t.pos - m, dist: d, line: t.pos, other: t.box };
+  }
+  for (const m of myYs) for (const t of targetsY) {
+    const d = Math.abs(m - t.pos);
+    if (d <= SNAP_THRESHOLD && d < bestY.dist) bestY = { delta: t.pos - m, dist: d, line: t.pos, other: t.box };
+  }
+  return {
+    x: proposedX + bestX.delta,
+    y: proposedY + bestY.delta,
+    guideX: bestX.line, guideXBox: bestX.other,
+    guideY: bestY.line, guideYBox: bestY.other,
+    thisBox,
+  };
+}
+
+function drawSnapGuides(diagram, snap) {
+  const svg = document.getElementById(diagram.id);
+  // remove old guides
+  svg.querySelectorAll('.snap-guide').forEach(g => g.remove());
+  if (snap.guideX != null) {
+    const minY = Math.min(snap.thisBox.y, snap.guideYBox?.y ?? snap.thisBox.y);
+    const maxY = Math.max(snap.thisBox.y + snap.thisBox.h, (snap.guideYBox?.y ?? 0) + (snap.guideYBox?.h ?? 0));
+    svg.appendChild(el('line', {
+      class: 'snap-guide',
+      x1: snap.guideX, y1: Math.max(0, minY - 40),
+      x2: snap.guideX, y2: Math.min(diagram.viewBox.h, maxY + 40),
+    }));
+  }
+  if (snap.guideY != null) {
+    const minX = Math.min(snap.thisBox.x, snap.guideXBox?.x ?? snap.thisBox.x);
+    const maxX = Math.max(snap.thisBox.x + snap.thisBox.w, (snap.guideXBox?.x ?? 0) + (snap.guideXBox?.w ?? 0));
+    svg.appendChild(el('line', {
+      class: 'snap-guide',
+      x1: Math.max(0, minX - 40), y1: snap.guideY,
+      x2: Math.min(diagram.viewBox.w, maxX + 40), y2: snap.guideY,
+    }));
+  }
+}
+
+// 拖曳 waypoint:單純更新 x/y,沒有 snap-to-other-boxes,純 GRID 取整。
+function startWaypointDrag(diagram, arrowIdx, wpIdx, evt) {
+  const svg = document.getElementById(diagram.id);
+  const arrow = diagram.arrows[arrowIdx];
+  if (!arrow?.waypoints?.[wpIdx]) return;
+  const wp = arrow.waypoints[wpIdx];
+  const startPt = svgPoint(svg, evt);
+  const start = { x: wp.x, y: wp.y };
+  function onMove(e) {
+    const pt = svgPoint(svg, e);
+    wp.x = Math.round((start.x + pt.x - startPt.x) / GRID) * GRID;
+    wp.y = Math.round((start.y + pt.y - startPt.y) / GRID) * GRID;
+    renderDiagram(diagram);
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    commit();
+    renderAll();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Box resize via 8 handles. Snaps to GRID. Min size guards prevent disappearing boxes.
+function startResize(diagram, box, dir, evt) {
+  const svg = document.getElementById(diagram.id);
+  const startPt = svgPoint(svg, evt);
+  const start = { x: box.x, y: box.y, w: box.w, h: box.h };
+  const MIN_W = 60, MIN_H = 40;
+
+  function onMove(e) {
+    const pt = svgPoint(svg, e);
+    const dx = Math.round((pt.x - startPt.x) / GRID) * GRID;
+    const dy = Math.round((pt.y - startPt.y) / GRID) * GRID;
+    let nx = start.x, ny = start.y, nw = start.w, nh = start.h;
+    if (dir.includes('e')) nw = Math.max(MIN_W, start.w + dx);
+    if (dir.includes('w')) {
+      const clampedDx = Math.min(dx, start.w - MIN_W);
+      nx = start.x + clampedDx;
+      nw = start.w - clampedDx;
+    }
+    if (dir.includes('s')) nh = Math.max(MIN_H, start.h + dy);
+    if (dir.includes('n')) {
+      const clampedDy = Math.min(dy, start.h - MIN_H);
+      ny = start.y + clampedDy;
+      nh = start.h - clampedDy;
+    }
+    box.x = nx; box.y = ny; box.w = nw; box.h = nh;
+    renderDiagram(diagram);
+    // re-render the panel inputs to reflect new x/y/w/h live
+    if (selection.kind === 'box' && selection.itemId === box.id) renderPanel();
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    commit();
+    renderAll();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// =============================================================================
+// SVG interaction wiring
+// =============================================================================
+
+function wireDiagramListeners() {
+  for (const d of state.diagrams) {
+    const svg = document.getElementById(d.id);
+    if (!svg) continue;
+    svg.onclick = (e) => onSvgClick(d, e);
+    svg.onmousedown = (e) => onSvgMouseDown(d, e);
+  }
+}
+
+function onSvgMouseDown(diagram, evt) {
+  if (!editMode) return;
+  const target = evt.target;
+
+  // Waypoint handle:拖曳 + 雙擊刪除
+  if (target.classList.contains('waypoint-handle')) {
+    const arrowIdx = Number(target.dataset.arrowIdx);
+    const wpIdx = Number(target.dataset.waypointIdx);
+    evt.stopPropagation();
+    evt.preventDefault();
+    // detect double click via simple time check
+    const now = performance.now();
+    if (target._lastClick && now - target._lastClick < 350) {
+      const arrow = diagram.arrows[arrowIdx];
+      arrow.waypoints.splice(wpIdx, 1);
+      if (arrow.waypoints.length === 0) delete arrow.waypoints;
+      commit(); renderAll();
+      return;
+    }
+    target._lastClick = now;
+    startWaypointDrag(diagram, arrowIdx, wpIdx, evt);
+    return;
+  }
+
+  // Resize handle takes priority — drag to resize selected box.
+  if (target.classList.contains('resize-handle')) {
+    const boxId = target.dataset.boxId;
+    const box = boxById(diagram, boxId);
+    if (!box) return;
+    evt.stopPropagation();
+    evt.preventDefault();
+    startResize(diagram, box, target.dataset.resize, evt);
+    return;
+  }
+
+  if (target.classList.contains('box-overlay') || target.tagName === 'rect' && target.parentElement?.dataset.boxId) {
+    const boxId = target.dataset.boxId || target.parentElement?.dataset.boxId;
+    const box = boxById(diagram, boxId);
+    if (!box) return;
+    if (pendingAction?.type === 'add-arrow') return; // let click handle
+    select(diagram.id, 'box', box.id);
+    startDrag(diagram, box, evt);
+  }
+}
+
+function onSvgClick(diagram, evt) {
+  if (!editMode) return;
+  const target = evt.target;
+
+  // Add-box pending: place at click position
+  if (pendingAction?.type === 'add-box') {
+    const pt = svgPoint(document.getElementById(diagram.id), evt);
+    const newBox = {
+      id: nextBoxId(diagram), x: Math.round(pt.x / GRID) * GRID, y: Math.round(pt.y / GRID) * GRID,
+      w: 200, h: 80, style: 'core', label: '新節點',
+    };
+    diagram.boxes.push(newBox);
+    setPendingAction(null);
+    select(diagram.id, 'box', newBox.id);
+    commit();
+    return;
+  }
+
+  // Add-arrow pending: pick endpoints
+  if (pendingAction?.type === 'add-arrow') {
+    const boxId = target.dataset?.boxId || target.parentElement?.dataset?.boxId;
+    if (!boxId) return;
+    if (!pendingAction.from) {
+      setPendingAction({ type: 'add-arrow', from: { diagramId: diagram.id, boxId } });
+    } else if (pendingAction.from.diagramId !== diagram.id) {
+      // ignore — only same-diagram
+    } else if (pendingAction.from.boxId === boxId) {
+      setPendingAction(null);
+    } else {
+      diagram.arrows.push({ from: pendingAction.from.boxId, to: boxId, sides: ['right', 'left'] });
+      setPendingAction(null);
+      select(diagram.id, 'arrow', diagram.arrows.length - 1);
+      commit();
+    }
+    return;
+  }
+
+  // Arrow click
+  if (target.classList.contains('arrow-hit')) {
+    const idx = Number(target.dataset.arrowIdx);
+    select(diagram.id, 'arrow', idx);
+    return;
+  }
+
+  // Empty area click → clear selection
+  if (target.tagName === 'svg') clearSelection();
+}
+
+function nextBoxId(diagram) {
+  let i = 1;
+  while (diagram.boxes.some(b => b.id === 'n' + i)) i++;
+  return 'n' + i;
+}
+
+function setStatus(msg) {
+  // 舊 API — 現在交給 setPendingAction 控管;保留以免別處呼叫壞掉。
+  const banner = document.getElementById('action-banner');
+  if (msg && banner) banner.textContent = msg;
+}
+
+// 統一管理 pending add 動作的視覺狀態:cursor 變十字 + 中央顯眼橫幅 + 按鈕亮起。
+function setPendingAction(action) {
+  pendingAction = action;
+  const banner = document.getElementById('action-banner');
+  const btnBox = document.getElementById('btn-add-box');
+  const btnArrow = document.getElementById('btn-add-arrow');
+  btnBox?.classList.remove('active');
+  btnArrow?.classList.remove('active');
+  if (action) {
+    document.body.classList.add('pending-add');
+    if (action.type === 'add-box') {
+      banner.textContent = '點圖中任意位置放置 box · 按 Esc 取消';
+      btnBox?.classList.add('active');
+    } else if (action.type === 'add-arrow') {
+      if (!action.from) {
+        banner.textContent = '點來源 box · 按 Esc 取消';
+      } else {
+        banner.textContent = `已選來源 「${action.from.boxId}」 — 點目標 box · 按 Esc 取消`;
+      }
+      btnArrow?.classList.add('active');
+    }
+  } else {
+    document.body.classList.remove('pending-add');
+  }
+}
+
+// =============================================================================
+// Side panel — render based on selection
+// =============================================================================
+
+function renderPanel() {
+  if (!editMode) return;
+  // Theme controls
+  document.getElementById('theme-bg').value = state.theme.slideBg;
+  document.getElementById('theme-arrow').value = state.theme.arrowColor;
+  document.getElementById('theme-font').value = state.theme.fontFamily;
+
+  // Diagram list
+  const list = document.getElementById('diagram-list');
+  list.innerHTML = state.diagrams.map(d => `
+    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+      <input type="text" value="${escapeHtml(d.id)}" disabled style="flex:0 0 60px;opacity:0.6">
+      <input type="text" value="${escapeHtml(d.title)}" data-diagram-title="${d.id}" style="flex:1">
+      <button class="btn" data-diagram-del="${d.id}" style="padding:4px 8px">×</button>
+    </div>
+  `).join('') + `<button class="btn" id="btn-add-diagram" style="margin-top:6px;width:100%">+ 新增圖表</button>`;
+  list.querySelectorAll('[data-diagram-title]').forEach(inp => {
+    inp.onchange = () => { const d = diagramById(inp.dataset.diagramTitle); if (d) { d.title = inp.value; commit(); renderAll(); } };
+  });
+  list.querySelectorAll('[data-diagram-del]').forEach(b => {
+    b.onclick = () => {
+      if (state.diagrams.length <= 1) { alert('至少要保留一張圖'); return; }
+      if (!confirm('刪除這張圖?')) return;
+      state.diagrams = state.diagrams.filter(d => d.id !== b.dataset.diagramDel);
+      commit(); renderAll();
+    };
+  });
+  document.getElementById('btn-add-diagram').onclick = addDiagram;
+
+  // Selection body
+  const body = document.getElementById('selection-body');
+  body.innerHTML = '';
+  if (!selection.kind) {
+    body.innerHTML = '<div class="empty">點圖中的 box 或箭頭來編輯</div>';
+    return;
+  }
+  const diag = diagramById(selection.diagramId);
+  if (!diag) return;
+  if (selection.kind === 'box') {
+    const box = boxById(diag, selection.itemId);
+    if (!box) return;
+    body.appendChild(renderBoxPanel(diag, box));
+  } else if (selection.kind === 'arrow') {
+    const arrow = diag.arrows[selection.itemId];
+    if (!arrow) return;
+    body.appendChild(renderArrowPanel(diag, arrow, selection.itemId));
+  }
+}
+
+function renderBoxPanel(diag, box) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <label class="row"><span>ID</span><input type="text" data-bk="id" value="${escapeHtml(box.id)}"></label>
+    <label class="row"><span>標籤</span></label>
+    <textarea data-bk="label" rows="3" style="width:100%">${escapeHtml(box.label)}</textarea>
+    <div class="num-grid">
+      <label><span>X</span><input type="number" data-bk="x" value="${box.x}"></label>
+      <label><span>Y</span><input type="number" data-bk="y" value="${box.y}"></label>
+      <label><span>寬</span><input type="number" data-bk="w" value="${box.w}"></label>
+      <label><span>高</span><input type="number" data-bk="h" value="${box.h}"></label>
+    </div>
+    <label class="row"><span>樣式</span>
+      <select data-bk="style">
+        ${STYLE_KEYS.map(k => `<option value="${k}" ${k === box.style ? 'selected' : ''}>${k}</option>`).join('')}
+      </select>
+    </label>
+    <label class="row"><span>形狀</span>
+      <select data-bk="shape">
+        <option value=""        ${!box.shape ? 'selected' : ''}>矩形</option>
+        <option value="db"      ${box.shape === 'db' ? 'selected' : ''}>圓柱 (DB)</option>
+        <option value="diamond" ${box.shape === 'diamond' ? 'selected' : ''}>菱形 (Decision)</option>
+        <option value="circle"  ${box.shape === 'circle' ? 'selected' : ''}>圓形 / 橢圓</option>
+        <option value="hexagon" ${box.shape === 'hexagon' ? 'selected' : ''}>六角形</option>
+      </select>
+    </label>
+    <label class="row"><span>標題字高</span><input type="number" data-bk="fontSize" value="${box.fontSize ?? ''}" placeholder="16" min="8" max="40"></label>
+    <label class="row"><span>內文字高</span><input type="number" data-bk="bodyFontSize" value="${box.bodyFontSize ?? ''}" placeholder="13" min="8" max="30"></label>
+    <label class="row"><span>覆寫填色</span><input type="color" data-bk="customFill" value="${box.customFill || STYLES[box.style].fill}"><button class="btn" data-bk-clear="customFill" style="padding:2px 6px;font-size:11px">×</button></label>
+    <label class="row"><span>覆寫框線</span><input type="color" data-bk="customStroke" value="${box.customStroke || STYLES[box.style].stroke}"><button class="btn" data-bk-clear="customStroke" style="padding:2px 6px;font-size:11px">×</button></label>
+    <label class="row"><span>覆寫文字</span><input type="color" data-bk="customText" value="${box.customText || STYLES[box.style].text}"><button class="btn" data-bk-clear="customText" style="padding:2px 6px;font-size:11px">×</button></label>
+    <button class="btn danger" data-bk-action="delete" style="width:100%;margin-top:10px">刪除 box</button>
+  `;
+  wrap.querySelectorAll('[data-bk]').forEach(inp => {
+    const key = inp.dataset.bk;
+    const handler = () => {
+      let v = inp.type === 'number' ? (inp.value === '' ? undefined : Number(inp.value)) : inp.value;
+      if (key === 'shape' && v === '') v = undefined;
+      if (key === 'id') {
+        if (!v || diag.boxes.some(b => b.id === v && b !== box)) { inp.value = box.id; return; }
+        // Update references in arrows
+        diag.arrows.forEach(a => { if (a.from === box.id) a.from = v; if (a.to === box.id) a.to = v; });
+        selection.itemId = v;
+      }
+      box[key] = v;
+      renderAll();
+      debounceCommit();
+    };
+    inp.onchange = handler;
+    if (inp.tagName === 'TEXTAREA') inp.oninput = handler;
+  });
+  wrap.querySelectorAll('[data-bk-clear]').forEach(b => {
+    b.onclick = () => { delete box[b.dataset.bkClear]; renderAll(); commit(); };
+  });
+  wrap.querySelector('[data-bk-action="delete"]').onclick = () => deleteSelected();
+  return wrap;
+}
+
+function renderArrowPanel(diag, arrow, idx) {
+  const wrap = document.createElement('div');
+  const sides = arrow.sides || ['right', 'left'];
+  const boxOptions = diag.boxes.map(b => `<option value="${b.id}">${b.id}</option>`).join('');
+  wrap.innerHTML = `
+    <label class="row"><span>From</span><select data-ak="from">${boxOptions}</select></label>
+    <label class="row"><span>To</span><select data-ak="to">${boxOptions}</select></label>
+    <label class="row"><span>From 邊</span>
+      <div class="grid4">
+        ${['left','right','top','bottom'].map(s => `<button class="btn ${sides[0]===s?'active':''}" data-ak-side0="${s}">${s}</button>`).join('')}
+      </div>
+    </label>
+    <label class="row"><span>To 邊</span>
+      <div class="grid4">
+        ${['left','right','top','bottom'].map(s => `<button class="btn ${sides[1]===s?'active':''}" data-ak-side1="${s}">${s}</button>`).join('')}
+      </div>
+    </label>
+    <label class="row"><span>From 位置</span><input type="range" min="0" max="1" step="0.05" data-ak="fromFrac" value="${arrow.fromFrac ?? 0.5}"></label>
+    <label class="row"><span>To 位置</span><input type="range" min="0" max="1" step="0.05" data-ak="toFrac" value="${arrow.toFrac ?? 0.5}"></label>
+    <label class="row"><span>標籤</span><input type="text" data-ak="label" value="${escapeHtml(arrow.label || '')}"></label>
+    <label class="row"><span>曲線</span><input type="checkbox" data-ak="curve" ${arrow.curve ? 'checked' : ''} style="flex:0"></label>
+    <label class="row"><span>彎曲度</span><input type="range" min="0" max="2" step="0.1" data-ak="curvature" value="${arrow.curvature ?? 1}"><span style="flex:0 0 auto;color:rgba(255,255,255,0.55);font-size:11px">${(arrow.curvature ?? 1).toFixed(1)}</span></label>
+    <label class="row"><span>虛線</span><input type="checkbox" data-ak="dashed" ${arrow.dashed ? 'checked' : ''} style="flex:0"></label>
+    <label class="row"><span>雙向</span><input type="checkbox" data-ak="bidirectional" ${arrow.bidirectional ? 'checked' : ''} style="flex:0"></label>
+    <label class="row"><span>顏色</span><input type="color" data-ak="color" value="${arrow.color || state.theme.arrowColor}"><button class="btn" data-ak-clear="color" style="padding:2px 6px;font-size:11px">×</button></label>
+
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08)">
+      <div style="font-size:11px;color:rgba(255,255,255,0.55);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">路徑點 (彎幾次)</div>
+      ${(arrow.waypoints || []).map((wp, i) => `
+        <div style="display:flex;gap:4px;margin-bottom:4px;align-items:center">
+          <span style="flex:0 0 18px;color:rgba(255,255,255,0.4);font-size:11px">${i + 1}</span>
+          <input type="number" data-wp-idx="${i}" data-wp-key="x" value="${wp.x}" placeholder="X" style="flex:1;padding:4px 6px;font-size:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:inherit">
+          <input type="number" data-wp-idx="${i}" data-wp-key="y" value="${wp.y}" placeholder="Y" style="flex:1;padding:4px 6px;font-size:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:inherit">
+          <button class="btn" data-wp-del="${i}" style="padding:2px 8px;font-size:11px" title="刪除">×</button>
+        </div>
+      `).join('')}
+      <button class="btn" id="wp-add" style="width:100%;margin-top:4px">+ 加路徑點 (彎一次)</button>
+      <div style="margin-top:6px;font-size:10.5px;color:rgba(255,255,255,0.4);line-height:1.5">點 + 後在 box 中間多一個彎,可拖曳粉紅小圓位移、雙擊刪除</div>
+    </div>
+
+    <button class="btn danger" data-ak-action="delete" style="width:100%;margin-top:10px">刪除箭頭</button>
+  `;
+  // Set selects to current values
+  wrap.querySelector('[data-ak="from"]').value = arrow.from;
+  wrap.querySelector('[data-ak="to"]').value = arrow.to;
+
+  wrap.querySelectorAll('[data-ak]').forEach(inp => {
+    const key = inp.dataset.ak;
+    inp.onchange = inp.oninput = () => {
+      let v;
+      if (inp.type === 'checkbox') v = inp.checked;
+      else if (inp.type === 'range') v = Number(inp.value);
+      else v = inp.value;
+      arrow[key] = v;
+      renderAll();
+      debounceCommit();
+    };
+  });
+  wrap.querySelectorAll('[data-ak-side0]').forEach(b => {
+    b.onclick = () => { arrow.sides = [b.dataset.akSide0, arrow.sides?.[1] || 'left']; renderAll(); commit(); };
+  });
+  wrap.querySelectorAll('[data-ak-side1]').forEach(b => {
+    b.onclick = () => { arrow.sides = [arrow.sides?.[0] || 'right', b.dataset.akSide1]; renderAll(); commit(); };
+  });
+  wrap.querySelector('[data-ak-clear="color"]').onclick = () => { delete arrow.color; renderAll(); commit(); };
+  wrap.querySelector('[data-ak-action="delete"]').onclick = () => deleteSelected();
+
+  // Waypoint controls: x/y inputs, delete, add-at-midpoint
+  wrap.querySelectorAll('[data-wp-idx]').forEach(inp => {
+    inp.onchange = inp.oninput = () => {
+      const i = Number(inp.dataset.wpIdx);
+      const k = inp.dataset.wpKey;
+      const wp = arrow.waypoints?.[i];
+      if (wp) { wp[k] = Number(inp.value); renderAll(); debounceCommit(); }
+    };
+  });
+  wrap.querySelectorAll('[data-wp-del]').forEach(btn => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.wpDel);
+      arrow.waypoints.splice(i, 1);
+      if (arrow.waypoints.length === 0) delete arrow.waypoints;
+      commit(); renderAll();
+    };
+  });
+  wrap.querySelector('#wp-add').onclick = () => {
+    // Drop a new waypoint at the visual midpoint of the current path.
+    const from = boxById(diag, arrow.from);
+    const to = boxById(diag, arrow.to);
+    if (!from || !to) return;
+    const fromSide = arrow.sides?.[0] || 'right';
+    const toSide = arrow.sides?.[1] || 'left';
+    const [x1, y1] = edgePoint(from, fromSide, arrow.fromFrac ?? 0.5);
+    const [x2, y2] = edgePoint(to, toSide, arrow.toFrac ?? 0.5);
+    if (!arrow.waypoints) arrow.waypoints = [];
+    // Append at midpoint between last waypoint (or source) and target,
+    // offset slightly perpendicular so it's clearly grabbable.
+    const last = arrow.waypoints.length ? arrow.waypoints[arrow.waypoints.length - 1] : { x: x1, y: y1 };
+    const midX = Math.round(((last.x + x2) / 2) / GRID) * GRID;
+    const midY = Math.round(((last.y + y2) / 2 + 40) / GRID) * GRID;
+    arrow.waypoints.push({ x: midX, y: midY });
+    commit(); renderAll();
+  };
+
+  return wrap;
+}
+
+let commitTimer = null;
+function debounceCommit() { clearTimeout(commitTimer); commitTimer = setTimeout(commit, 400); }
+
+// =============================================================================
+// Add / delete
+// =============================================================================
+
+function addDiagram() {
+  const id = 'd' + (state.diagrams.length + 1);
+  state.diagrams.push({
+    id, title: '新圖表', caption: '', filename: id,
+    viewBox: { w: 1200, h: 500 },
+    boxes: [
+      { id: 'n1', x: 100, y: 200, w: 200, h: 80, style: 'io', label: 'Start' },
+      { id: 'n2', x: 400, y: 200, w: 200, h: 80, style: 'core', label: 'Process' },
+      { id: 'n3', x: 700, y: 200, w: 200, h: 80, style: 'io', label: 'End' },
+    ],
+    arrows: [
+      { from: 'n1', to: 'n2', sides: ['right', 'left'] },
+      { from: 'n2', to: 'n3', sides: ['right', 'left'] },
+    ],
+  });
+  commit(); renderAll();
+}
+
+function deleteSelected() {
+  if (!selection.kind) return;
+  const diag = diagramById(selection.diagramId);
+  if (!diag) return;
+  if (selection.kind === 'box') {
+    // Remove arrows referencing this box
+    diag.arrows = diag.arrows.filter(a => a.from !== selection.itemId && a.to !== selection.itemId);
+    diag.boxes = diag.boxes.filter(b => b.id !== selection.itemId);
+  } else if (selection.kind === 'arrow') {
+    diag.arrows.splice(selection.itemId, 1);
+  }
+  selection = { diagramId: null, kind: null, itemId: null };
+  commit(); renderAll();
+}
+
+// =============================================================================
+// Theme controls wiring
+// =============================================================================
+
+function wireThemeControls() {
+  document.getElementById('theme-bg').oninput = (e) => { state.theme.slideBg = e.target.value; renderAll(); debounceCommit(); };
+  document.getElementById('theme-arrow').oninput = (e) => { state.theme.arrowColor = e.target.value; renderAll(); debounceCommit(); };
+  document.getElementById('theme-font').onchange = (e) => { state.theme.fontFamily = e.target.value; renderAll(); commit(); };
+}
+
+// =============================================================================
+// PNG / SVG export — 共用前處理,可選透明背景
+// =============================================================================
+
+function transparentExportRequested() {
+  return document.getElementById('opt-transparent')?.checked === true;
+}
+
+// 共用:複製 SVG → 剝除 editor-only 元素 → 內嵌 text CSS。
+// caller 自行決定是否插背景 rect(透明 vs 不透明)。
+async function prepareSvgClone(svgId) {
+  try { await document.fonts.ready; } catch {}
+  const svg = document.getElementById(svgId);
+  const clone = svg.cloneNode(true);
+  clone.querySelectorAll('.box-overlay, .arrow-hit, .selection-ring, .snap-guide, .resize-handle, .waypoint-handle, .grid-bg').forEach(n => n.remove());
+  const styleEl = document.createElementNS(SVG_NS, 'style');
+  styleEl.textContent = `
+    text { font-family: ${state.theme.fontFamily}; }
+    .arrow-label { font-size: 12px; fill: ${state.theme.lightMode ? '#44403c' : '#e2e8f0'}; }
+  `;
+  clone.insertBefore(styleEl, clone.firstChild);
+  const vb = svg.viewBox.baseVal;
+  clone.setAttribute('xmlns', SVG_NS);
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  clone.setAttribute('width', vb.width);
+  clone.setAttribute('height', vb.height);
+  return { clone, vb };
+}
+
+async function exportDiagramAsPng(svgId, filename, scale = 2) {
+  const transparent = transparentExportRequested();
+  const { clone, vb } = await prepareSvgClone(svgId);
+  const xml = new XMLSerializer().serializeToString(clone);
+  const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+  const img = new Image();
+  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = dataUrl; });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(vb.width * scale);
+  canvas.height = Math.round(vb.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (!transparent) {
+    ctx.fillStyle = state.theme.slideBg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  await new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename + (transparent ? '-transparent' : '') + '.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      resolve();
+    }, 'image/png');
+  });
+}
+
+async function exportDiagramAsSvg(svgId, filename) {
+  const transparent = transparentExportRequested();
+  const { clone, vb } = await prepareSvgClone(svgId);
+  if (!transparent) {
+    // 在 <style> 之後插入底色 rect,確保其他繪製內容在它之上
+    const bg = document.createElementNS(SVG_NS, 'rect');
+    bg.setAttribute('x', '0');
+    bg.setAttribute('y', '0');
+    bg.setAttribute('width', String(vb.width));
+    bg.setAttribute('height', String(vb.height));
+    bg.setAttribute('fill', state.theme.slideBg);
+    const styleEl = clone.querySelector('style');
+    if (styleEl && styleEl.nextSibling) clone.insertBefore(bg, styleEl.nextSibling);
+    else clone.insertBefore(bg, clone.firstChild);
+  }
+  const xml = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + new XMLSerializer().serializeToString(clone);
+  const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename + (transparent ? '-transparent' : '') + '.svg';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function setupDownloadButtons() {
+  // PNG buttons (per section)
+  document.querySelectorAll('button[data-dl-png]').forEach((btn) => {
+    btn.onclick = async () => {
+      const svgId = btn.dataset.dlPng;
+      const section = btn.closest('section');
+      const filename = section.dataset.filename || svgId;
+      btn.disabled = true; const prev = btn.textContent; btn.textContent = '⋯';
+      try { await exportDiagramAsPng(svgId, filename); }
+      catch (e) { console.error(e); alert('PNG 匯出失敗:' + (e?.message || e)); }
+      finally { btn.disabled = false; btn.textContent = prev; }
+    };
+  });
+  // SVG buttons (per section)
+  document.querySelectorAll('button[data-dl-svg]').forEach((btn) => {
+    btn.onclick = async () => {
+      const svgId = btn.dataset.dlSvg;
+      const section = btn.closest('section');
+      const filename = section.dataset.filename || svgId;
+      btn.disabled = true; const prev = btn.textContent; btn.textContent = '⋯';
+      try { await exportDiagramAsSvg(svgId, filename); }
+      catch (e) { console.error(e); alert('SVG 匯出失敗:' + (e?.message || e)); }
+      finally { btn.disabled = false; btn.textContent = prev; }
+    };
+  });
+}
+
+async function batchExport(format) {
+  const btnId = format === 'svg' ? 'dl-all-svg' : 'dl-all-png';
+  const btn = document.getElementById(btnId);
+  btn.disabled = true; const prev = btn.textContent;
+  try {
+    for (const d of state.diagrams) {
+      btn.textContent = '匯出 ' + d.id + '…';
+      if (format === 'svg') await exportDiagramAsSvg(d.id, d.filename || d.id);
+      else await exportDiagramAsPng(d.id, d.filename || d.id);
+      await new Promise(r => setTimeout(r, 300));
+    }
+  } finally { btn.disabled = false; btn.textContent = prev; }
+}
+document.getElementById('dl-all-png').onclick = () => batchExport('png');
+document.getElementById('dl-all-svg').onclick = () => batchExport('svg');
+
+// =============================================================================
+// Export JS & Download HTML
+// =============================================================================
+
+function stringifyValue(v) {
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return '[' + v.map(stringifyValue).join(', ') + ']';
+  if (v && typeof v === 'object') return '{ ' + Object.entries(v).map(([k, val]) => `${k}: ${stringifyValue(val)}`).join(', ') + ' }';
+  return 'null';
+}
+
+function exportJsConfig() {
+  const lines = [
+    `// Theme`,
+    `// CSS:  :root { --slide-bg: ${state.theme.slideBg}; --font-stack: ${state.theme.fontFamily}; }`,
+    `// JS:   const SLIDE_BG = '${state.theme.slideBg}';`,
+    `//       const ARROW_COLOR = '${state.theme.arrowColor}';`,
+    ``,
+  ];
+  for (const d of state.diagrams) {
+    lines.push(`renderDiagram('${d.id}', {`);
+    lines.push(`  boxes: [`);
+    for (const b of d.boxes) {
+      const entries = Object.entries(b).filter(([, v]) => v !== undefined && v !== '');
+      lines.push(`    { ${entries.map(([k, v]) => `${k}: ${stringifyValue(v)}`).join(', ')} },`);
+    }
+    lines.push(`  ],`);
+    lines.push(`  arrows: [`);
+    for (const a of d.arrows) {
+      const entries = Object.entries(a).filter(([, v]) => v !== undefined && v !== '');
+      lines.push(`    { ${entries.map(([k, v]) => `${k}: ${stringifyValue(v)}`).join(', ')} },`);
+    }
+    lines.push(`  ],`);
+    lines.push(`});`);
+    lines.push('');
+  }
+  showModal('Export JS Config', lines.join('\n'));
+}
+
+function downloadHtml() {
+  // Embed state as INITIAL_STATE so the downloaded file boots with current config,
+  // not from localStorage of the opening machine.
+  const stateJson = JSON.stringify(state, null, 2);
+  // Get current document HTML, then inject INITIAL_STATE script before our main <script>.
+  const html = document.documentElement.outerHTML;
+  const injected = html.replace(
+    /<script>/,
+    `<script>window.INITIAL_STATE = ${stateJson};<\/script>\n<script>`,
+  );
+  const blob = new Blob(['<!doctype html>\n' + injected], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (state.diagrams[0]?.filename || 'flow') + '.html';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function showModal(title, text) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').textContent = text;
+  document.getElementById('modal-backdrop').classList.add('open');
+}
+document.getElementById('modal-close').onclick = () => document.getElementById('modal-backdrop').classList.remove('open');
+document.getElementById('modal-copy').onclick = () => {
+  navigator.clipboard.writeText(document.getElementById('modal-body').textContent);
+  const b = document.getElementById('modal-copy');
+  b.textContent = '已複製!'; setTimeout(() => b.textContent = '複製', 1200);
+};
+
+// =============================================================================
+// Edit mode toggle + toolbar wiring
+// =============================================================================
+
+function setEditMode(on) {
+  editMode = on;
+  document.body.classList.toggle('editing', on);
+  document.getElementById('btn-edit-toggle').textContent = on ? '✕ 離開編輯' : '✏ 編輯';
+  if (!on) clearSelection(); else renderPanel();
+  renderAll();
+}
+
+document.getElementById('btn-edit-toggle').onclick = () => setEditMode(!editMode);
+document.getElementById('btn-add-box').onclick = () => {
+  setPendingAction(pendingAction?.type === 'add-box' ? null : { type: 'add-box' });
+};
+document.getElementById('btn-add-arrow').onclick = () => {
+  setPendingAction(pendingAction?.type === 'add-arrow' ? null : { type: 'add-arrow', from: null });
+};
+document.getElementById('btn-delete').onclick = deleteSelected;
+document.getElementById('btn-undo').onclick = undo;
+document.getElementById('btn-redo').onclick = redo;
+document.getElementById('btn-export').onclick = exportJsConfig;
+document.getElementById('btn-download-html').onclick = downloadHtml;
+// Grid + Zoom + 座標讀取
+state.editor = state.editor || { showGrid: false, zoom: 'fit' };
+document.getElementById('opt-grid').checked = state.editor.showGrid;
+document.getElementById('opt-grid').onchange = (e) => {
+  state.editor.showGrid = e.target.checked;
+  saveState();
+  renderAll();
+};
+document.getElementById('btn-zoom-in').onclick = () => {
+  const cur = typeof state.editor.zoom === 'number' ? state.editor.zoom : 1;
+  setZoom(Math.min(3, +(cur + 0.1).toFixed(2)));
+};
+document.getElementById('btn-zoom-out').onclick = () => {
+  const cur = typeof state.editor.zoom === 'number' ? state.editor.zoom : 1;
+  setZoom(Math.max(0.3, +(cur - 0.1).toFixed(2)));
+};
+document.getElementById('btn-zoom-label').onclick = () => setZoom(1);
+document.getElementById('btn-zoom-fit').onclick = () => setZoom('fit');
+// 鍵盤:Cmd+= 放大, Cmd+- 縮小, Cmd+0 重置
+document.addEventListener('keydown', (e) => {
+  if (!editMode) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+  const cmd = e.metaKey || e.ctrlKey;
+  if (cmd && (e.key === '=' || e.key === '+')) { e.preventDefault(); document.getElementById('btn-zoom-in').click(); }
+  else if (cmd && e.key === '-') { e.preventDefault(); document.getElementById('btn-zoom-out').click(); }
+  else if (cmd && e.key === '0') { e.preventDefault(); setZoom(1); }
+});
+
+// 座標讀取:游標停在哪張圖上,toolbar 就顯示其 viewBox 座標
+function wireCoordReadout() {
+  const out = document.getElementById('coord-readout');
+  for (const d of state.diagrams) {
+    const svg = document.getElementById(d.id);
+    if (!svg) continue;
+    svg.addEventListener('mousemove', (e) => {
+      const pt = svgPoint(svg, e);
+      out.textContent = `x: ${Math.round(pt.x)}  y: ${Math.round(pt.y)}`;
+    });
+    svg.addEventListener('mouseleave', () => { out.textContent = 'x: —  y: —'; });
+  }
+}
+
+document.getElementById('btn-mermaid').onclick = () => {
+  document.getElementById('mermaid-backdrop').style.display = 'flex';
+  setTimeout(() => document.getElementById('mermaid-input').focus(), 50);
+};
+document.getElementById('mermaid-cancel').onclick = () => {
+  document.getElementById('mermaid-backdrop').style.display = 'none';
+};
+document.getElementById('mermaid-replace').onclick = () => importMermaid(true);
+document.getElementById('mermaid-append').onclick = () => importMermaid(false);
+document.getElementById('mermaid-backdrop').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+});
+
+document.getElementById('btn-reset').onclick = () => {
+  if (!confirm('重置為內建範例?所有編輯將遺失。')) return;
+  state = DEFAULT_STATE();
+  history.stack = [cloneState()]; history.cursor = 0;
+  selection = { diagramId: null, kind: null, itemId: null };
+  saveState(); renderAll(); refreshUndoRedoButtons();
+};
+
+// =============================================================================
+// Keyboard shortcuts
+// =============================================================================
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+  const cmd = e.metaKey || e.ctrlKey;
+  if (cmd && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if (cmd && (e.key === 'Z' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+  else if (e.key === 'Escape') { setPendingAction(null); clearSelection(); }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && editMode && selection.kind) { e.preventDefault(); deleteSelected(); }
+});
+
+// =============================================================================
+// Init
+// =============================================================================
+
+// If we were downloaded with an embedded INITIAL_STATE, use it (overrides localStorage).
+if (window.INITIAL_STATE) {
+  state = normalizeState(window.INITIAL_STATE);
+  history.stack = [cloneState()]; history.cursor = 0;
+  saveState();
+}
+
+// Panel resize:左邊緣拖曳調整寬度,localStorage 記住。
+function wirePanelResize() {
+  const PANEL_W_KEY = 'flow-diagram-panel-width';
+  const saved = parseInt(localStorage.getItem(PANEL_W_KEY) || '340', 10);
+  if (Number.isFinite(saved)) {
+    document.documentElement.style.setProperty('--panel-width', saved + 'px');
+  }
+  const handle = document.getElementById('panel-resize');
+  if (!handle) return;
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    handle.classList.add('dragging');
+    const startX = e.clientX;
+    const startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--panel-width'), 10) || 340;
+    function onMove(ev) {
+      const newW = Math.max(280, Math.min(640, startW - (ev.clientX - startX)));
+      document.documentElement.style.setProperty('--panel-width', newW + 'px');
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const finalW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--panel-width'), 10);
+      localStorage.setItem(PANEL_W_KEY, finalW);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// =============================================================================
+// Mermaid 解析 + 自動排版
+// =============================================================================
+
+// 解析常見的 mermaid flowchart 語法。回傳 { direction, nodes:[{id,label,kind,shape}], edges:[{from,to,label,dashed}] }
+function parseMermaid(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'));
+  let direction = 'LR';
+  const nodes = new Map();
+  const edges = [];
+
+  function getOrCreateNode(id, label, kind, shape) {
+    if (!nodes.has(id)) {
+      nodes.set(id, { id, label: label || id, kind: kind || 'rect', shape });
+    } else {
+      const n = nodes.get(id);
+      if (label && n.label === n.id) n.label = label;
+      if (kind && n.kind === 'rect') n.kind = kind;
+      if (shape) n.shape = shape;
+    }
+  }
+
+  // 依序嘗試 shape patterns(順序很重要:長的先 match 才不會被短的搶走)
+  const SHAPE = [
+    { re: /^([A-Za-z0-9_]+)\[\(([^)]*)\)\]/, kind: 'storage',   shape: 'db' },      // [(...)]
+    { re: /^([A-Za-z0-9_]+)\(\(([^)]*)\)\)/, kind: 'io',        shape: 'circle' },  // ((...))
+    { re: /^([A-Za-z0-9_]+)\{\{([^}]*)\}\}/, kind: 'planning',  shape: 'hexagon' }, // {{...}}
+    { re: /^([A-Za-z0-9_]+)\{([^}]*)\}/,     kind: 'planning',  shape: 'diamond' }, // {...}
+    { re: /^([A-Za-z0-9_]+)\[\/([^/]*)\/\]/, kind: 'perception' },                  // [/.../]  parallelogram (用 style 代表)
+    { re: /^([A-Za-z0-9_]+)\[([^\]]*)\]/,    kind: 'core' },                        // [...]
+  ];
+
+  function parseRef(s) {
+    s = s.trim();
+    for (const p of SHAPE) {
+      const m = s.match(p.re);
+      if (m) {
+        getOrCreateNode(m[1], m[2], p.kind, p.shape);
+        return m[1];
+      }
+    }
+    const m = s.match(/^([A-Za-z0-9_]+)/);
+    if (m) { getOrCreateNode(m[1]); return m[1]; }
+    return null;
+  }
+
+  for (const raw of lines) {
+    let line = raw;
+    // direction
+    const dm = line.match(/^(?:graph|flowchart)\s+(LR|TD|TB|RL|BT)/i);
+    if (dm) { direction = dm[1].toUpperCase(); if (direction === 'TB') direction = 'TD'; continue; }
+    // edge:支援 A --> B, A -->|label| B, A -.-> B, A === B, etc.
+    // 簡單版:用 split on edge operator
+    const opRe = /\s+(--+>|---+|-\.+->|-\.+-|==+>|===+)\s*(?:\|([^|]*)\|)?\s*/;
+    const opM = line.match(opRe);
+    if (opM) {
+      const fromRef = line.slice(0, opM.index).trim();
+      const op = opM[1];
+      const label = opM[2]?.trim();
+      const toRef = line.slice(opM.index + opM[0].length).trim();
+      const from = parseRef(fromRef);
+      const to = parseRef(toRef);
+      if (from && to) {
+        edges.push({
+          from, to,
+          label: label || undefined,
+          dashed: op.startsWith('-.'),
+        });
+      }
+      continue;
+    }
+    // node-only line
+    parseRef(line);
+  }
+
+  return { direction, nodes: [...nodes.values()], edges };
+}
+
+// 把解析結果轉成 flow-diagram 的 boxes/arrows + 計算 viewBox。
+// 用「longest path from source」決定欄位 (layer/level),同層內依出現順序垂直排。
+function autoLayoutMermaid(parsed, optimize = true) {
+  const { direction, nodes, edges } = parsed;
+  const isHoriz = direction === 'LR' || direction === 'RL';
+
+  const inSrc = new Map();
+  for (const n of nodes) inSrc.set(n.id, []);
+  for (const e of edges) (inSrc.get(e.to) || []).push(e.from);
+
+  const memo = new Map();
+  function level(id, stack = new Set()) {
+    if (memo.has(id)) return memo.get(id);
+    if (stack.has(id)) return 0; // cycle guard
+    stack.add(id);
+    const ins = inSrc.get(id) || [];
+    let max = -1;
+    for (const src of ins) max = Math.max(max, level(src, stack));
+    stack.delete(id);
+    const lv = max + 1;
+    memo.set(id, lv);
+    return lv;
+  }
+  for (const n of nodes) level(n.id);
+
+  const byLevel = new Map();
+  for (const n of nodes) {
+    const lv = memo.get(n.id);
+    if (!byLevel.has(lv)) byLevel.set(lv, []);
+    byLevel.get(lv).push(n);
+  }
+  const sortedLevels = [...byLevel.keys()].sort((a, b) => a - b);
+
+  const COL = 280, ROW = 130;
+  const BOX_W = 200, BOX_H = 80;
+  const MARGIN = 40;
+
+  const boxes = [];
+  let maxLv = 0, maxInLv = 0;
+  for (const lv of sortedLevels) {
+    const inLv = byLevel.get(lv);
+    maxLv = Math.max(maxLv, lv);
+    maxInLv = Math.max(maxInLv, inLv.length - 1);
+    inLv.forEach((n, i) => {
+      const x = isHoriz ? MARGIN + lv * COL : MARGIN + i * COL;
+      const y = isHoriz ? MARGIN + i * ROW : MARGIN + lv * ROW;
+      const style = optimize ? (n.kind || 'core') : 'core';
+      boxes.push({
+        id: n.id, x, y, w: BOX_W, h: BOX_H, style,
+        label: n.label,
+        ...(n.shape ? { shape: n.shape } : {}),
+      });
+    });
+  }
+
+  const sides = isHoriz ? ['right', 'left'] : ['bottom', 'top'];
+  const arrows = edges.map(e => {
+    const a = { from: e.from, to: e.to, sides: [...sides], curve: true };
+    if (e.label) a.label = e.label;
+    if (e.dashed) a.dashed = true;
+    return a;
+  });
+
+  const w = isHoriz ? MARGIN * 2 + (maxLv + 1) * COL : MARGIN * 2 + (maxInLv + 1) * COL;
+  const h = isHoriz ? MARGIN * 2 + (maxInLv + 1) * ROW : MARGIN * 2 + (maxLv + 1) * ROW;
+
+  // 智慧分流:同一 box 同一邊的多條箭頭依目標位置排序,均勻分散 fromFrac/toFrac,
+  // 避免所有線都從中點離開造成視覺上一坨。
+  spreadArrowFractions(boxes, arrows);
+
+  return { boxes, arrows, viewBox: { w: Math.max(w, 600), h: Math.max(h, 300) } };
+}
+
+function spreadArrowFractions(boxes, arrows) {
+  const boxById = Object.fromEntries(boxes.map(b => [b.id, b]));
+  const outGroups = new Map();  // key: "fromId|fromSide" -> arrows[]
+  const inGroups  = new Map();  // key: "toId|toSide"     -> arrows[]
+
+  for (const a of arrows) {
+    const fromSide = a.sides?.[0] || 'right';
+    const toSide   = a.sides?.[1] || 'left';
+    const ok = a.from + '|' + fromSide;
+    const ik = a.to   + '|' + toSide;
+    if (!outGroups.has(ok)) outGroups.set(ok, []);
+    if (!inGroups.has(ik))  inGroups.set(ik, []);
+    outGroups.get(ok).push(a);
+    inGroups.get(ik).push(a);
+  }
+
+  // 排序基準:水平邊(left/right)以對方 Y 軸排;垂直邊(top/bottom)以對方 X 軸排
+  function sortByCounterpart(group, oppositeBoxIdField, side) {
+    const horiz = side === 'left' || side === 'right';
+    group.sort((a, b) => {
+      const ba = boxById[a[oppositeBoxIdField]];
+      const bb = boxById[b[oppositeBoxIdField]];
+      if (!ba || !bb) return 0;
+      return horiz
+        ? (ba.y + ba.h / 2) - (bb.y + bb.h / 2)
+        : (ba.x + ba.w / 2) - (bb.x + bb.w / 2);
+    });
+  }
+
+  for (const [key, group] of outGroups) {
+    if (group.length <= 1) continue;
+    sortByCounterpart(group, 'to', key.split('|')[1]);
+    const n = group.length;
+    group.forEach((a, i) => { a.fromFrac = +((i + 1) / (n + 1)).toFixed(3); });
+  }
+  for (const [key, group] of inGroups) {
+    if (group.length <= 1) continue;
+    sortByCounterpart(group, 'from', key.split('|')[1]);
+    const n = group.length;
+    group.forEach((a, i) => { a.toFrac = +((i + 1) / (n + 1)).toFixed(3); });
+  }
+}
+
+function importMermaid(replace) {
+  const text = document.getElementById('mermaid-input').value;
+  const optimize = document.getElementById('mermaid-optimize').checked;
+  let parsed;
+  try { parsed = parseMermaid(text); }
+  catch (e) { alert('解析失敗:' + e.message); return; }
+  if (parsed.nodes.length === 0) { alert('沒解析到任何節點'); return; }
+  const layout = autoLayoutMermaid(parsed, optimize);
+  const newDiagram = {
+    id: 'd' + (state.diagrams.length + (replace ? 0 : 1) + Date.now() % 1000),
+    title: replace ? (state.diagrams[0]?.title || 'Mermaid Import') : 'Mermaid Import',
+    caption: '從 Mermaid 語法產生 (方向:' + parsed.direction + ', ' + parsed.nodes.length + ' 節點 / ' + parsed.edges.length + ' 邊)',
+    filename: replace ? (state.diagrams[0]?.filename || 'imported') : 'imported',
+    viewBox: layout.viewBox,
+    boxes: layout.boxes,
+    arrows: layout.arrows,
+  };
+  if (replace) {
+    // 維持原 id 以免 INITIAL_STATE 引用斷掉
+    newDiagram.id = state.diagrams[0]?.id || newDiagram.id;
+    state.diagrams[0] = newDiagram;
+  } else {
+    state.diagrams.push(newDiagram);
+  }
+  commit();
+  document.getElementById('mermaid-backdrop').style.display = 'none';
+  renderAll();
+}
+
+function bootSafely() {
+  try {
+    wireThemeControls();
+    wirePanelResize();
+    renderAll();
+    // 同步 zoom label / grid toggle 到 state
+    setZoom(state.editor?.zoom ?? 'fit');
+    document.getElementById('opt-grid').checked = !!state.editor?.showGrid;
+    refreshUndoRedoButtons();
+  } catch (err) {
+    console.error('[flow-diagram] init failed:', err);
+    const main = document.getElementById('diagrams');
+    if (main) {
+      main.innerHTML = `
+        <section style="background:#fee2e2;color:#7f1d1d;border-color:#fecaca">
+          <h2 style="color:#7f1d1d">渲染失敗</h2>
+          <p class="caption" style="color:#991b1b">
+            ${String(err && err.message || err)}
+          </p>
+          <pre style="font-size:11px;line-height:1.5;background:rgba(0,0,0,0.05);padding:10px;border-radius:6px;overflow:auto">${String((err && err.stack) || '').replace(/[<>&]/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;' }[c]))}</pre>
+          <button class="btn" onclick="localStorage.removeItem('${STORAGE_KEY}'); location.reload();" style="margin-top:10px">清除儲存並重載</button>
+        </section>
+      `;
+    }
+  }
+}
+bootSafely();
+</script>
+</body>
+</html>

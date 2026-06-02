@@ -7,11 +7,13 @@ import {
   getFeed,
   getGraph,
   getSnapshot,
+  invalidateGraphCache,
   purgeFilteredPosts,
   verifySiteUrl,
 } from "./lib/scamEngine";
 import { chatWithLlm, isLlmConfigured } from "./lib/llm";
 import {
+  getAllPosts as getAllStoredPosts,
   getRecentReports,
   insertReport,
   type UserReport,
@@ -20,7 +22,11 @@ import {
   getThreatIntelStatus,
   refreshPhishFeeds,
 } from "./lib/threatIntel";
-import { probeNeo4jOnStartup } from "./lib/neo4j";
+import {
+  isNeo4jEnabled,
+  probeNeo4jOnStartup,
+  syncPostsToNeo4j,
+} from "./lib/neo4j";
 import {
   broadcast,
   registerSseClient,
@@ -299,12 +305,37 @@ app.listen(port, () => {
   console.log(`Scam demo API listening on http://localhost:${port}`);
 });
 
-// 開機階段背景跑這三件事,不阻擋 listen
-void probeNeo4jOnStartup().catch(() => {
-  /* probe failure is logged inside */
-});
+// 開機階段背景跑這幾件事,不阻擋 listen。
+// 1) 先 probe Neo4j → 2) 跑初次 crawl(內部會做一次 syncPostsToNeo4j) →
+// 3) 用 SQLite 全量 posts 再強制 resync 一次,避免 Neo4j 殘留舊資料 →
+// 4) 失效 graph cache,讓下一次 /api/graph 拿到最新資料。
+void (async () => {
+  try {
+    await probeNeo4jOnStartup();
+  } catch (error) {
+    console.error("[startup] Neo4j probe failed:", error);
+  }
 
-void runScheduledCrawl("startup");
+  try {
+    await runScheduledCrawl("startup");
+  } catch (error) {
+    console.error("[startup] initial crawl failed:", error);
+  }
+
+  if (isNeo4jEnabled()) {
+    try {
+      const posts = getAllStoredPosts();
+      const result = await syncPostsToNeo4j(posts);
+      console.log(
+        `[startup] forced Neo4j resync from SQLite: posts=${posts.length} result=${JSON.stringify(result)}`,
+      );
+    } catch (error) {
+      console.error("[startup] forced Neo4j resync failed:", error);
+    }
+  }
+
+  invalidateGraphCache();
+})();
 
 setInterval(() => {
   void runScheduledCrawl("interval");

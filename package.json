@@ -30,6 +30,7 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.15.0",
     "remark-gfm": "^4.0.1",
+    "undici": "^7.24.6",
     "vis-network": "^9.1.9"
   },
   "devDependencies": {

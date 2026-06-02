@@ -487,6 +487,20 @@ function NodeDetails({
     ? new Date(node.publishedAt).toLocaleString("zh-TW", { hour12: false })
     : null;
 
+  // 1. Validate url: trim, must be http(s) scheme.
+  const trimmedUrl = typeof node.url === "string" ? node.url.trim() : "";
+  const isJumpable = /^https?:\/\//i.test(trimmedUrl);
+
+  // 2. If no jumpable URL but we know the source, fall back to a search/homepage link.
+  const FALLBACK: Record<string, string> = {
+    "PTT": "https://www.ptt.cc/bbs/index.html",
+    "Dcard": "https://www.dcard.tw/f",
+    "Google News": "https://news.google.com/search?q=%E8%A9%90%E9%A8%99",
+    "165 全民防騙網": "https://165.npa.gov.tw/",
+    "User Report": "",
+  };
+  const fallbackHref = !isJumpable && node.source ? (FALLBACK[node.source] ?? "") : "";
+
   return (
     <div className="space-y-3">
       <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
@@ -527,15 +541,25 @@ function NodeDetails({
                 ) : null}
               </dl>
             ) : null}
-            {node.url ? (
+            {isJumpable ? (
               <a
-                href={node.url}
+                href={trimmedUrl}
                 target="_blank"
                 rel="noreferrer noopener"
                 className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/25"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 前往原始來源
+              </a>
+            ) : fallbackHref ? (
+              <a
+                href={fallbackHref}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-400/25"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                {`造訪 ${node.source} 平台`}
               </a>
             ) : (
               <p className="mt-3 rounded-xl border border-white/8 bg-white/3 px-3 py-2 text-center text-[11px] text-slate-500">

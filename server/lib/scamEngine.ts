@@ -17,6 +17,7 @@ import { crawlGoogleNewsPosts } from "../sources/googleNews";
 import { crawlPttPosts } from "../sources/ptt";
 import { crawlDashboard165Posts } from "../sources/dashboard165";
 import {
+  backfillDemoUrls,
   countPosts,
   countPostsBySource,
   deletePostsByIds,
@@ -197,13 +198,19 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
 
 seedDemoIfEmpty();
 
+// 修復先前 dedupe bug 把 demo 種子的 URL 蓋掉的舊資料。
+const restoredUrls = backfillDemoUrls(demoPosts);
+if (restoredUrls > 0) {
+  console.log(`[db] backfilled ${restoredUrls} demo post URLs that were cleared by dedupe`);
+}
+
 const embeddingCache = new Map<string, number[]>();
 
 // graph cache:同一個 limit 的結果會 cache,直到 invalidateGraphCache() 被呼叫
 const graphCache = new Map<number, { payload: GraphResponse; etag: string; builtAt: number }>();
 const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
 
-function invalidateGraphCache() {
+export function invalidateGraphCache() {
   graphCache.clear();
 }
 

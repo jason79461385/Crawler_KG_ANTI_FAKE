@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Claude Agent Decision Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --slide-bg: #faf6ed;
+    --ink: #1c1917;
+    --muted: #57534e;
+    --arrow: #44403c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    padding: 48px 24px 80px;
+    background: var(--slide-bg);
+    color: var(--ink);
+    font-family: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header.page {
+    max-width: 1640px;
+    margin: 0 auto 32px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  header.page > div { min-width: 280px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; color: #1c1917; }
+  .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
+  section {
+    background: rgba(28,25,23,0.03);
+    max-width: 1640px;
+    margin: 0 auto 24px;
+    padding: 26px 32px 32px;
+    border-radius: 20px;
+    border: 1px solid rgba(28,25,23,0.08);
+  }
+  section header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-bottom: 6px;
+  }
+  section h2 {
+    font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em;
+    color: #1c1917;
+  }
+  section .caption {
+    color: var(--muted); margin: 0 0 22px;
+    font-size: 13px; line-height: 1.7; max-width: 80ch;
+  }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  button.dl {
+    background: rgba(28,25,23,0.05);
+    color: #1c1917;
+    border: 1px solid rgba(28,25,23,0.15);
+    border-radius: 10px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button.dl:hover { background: rgba(28,25,23,0.10); }
+  button.dl:disabled { opacity: 0.5; cursor: wait; }
+  text { font-family: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif; user-select: none; }
+  .box-title { font-weight: 700; font-size: 16px; }
+  .box-line { font-size: 13px; }
+  .arrow-label { font-size: 12px; fill: #44403c; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div>
+    <h1>Claude Agent — Decision Flow</h1>
+    <p class="subtitle">Skill 測試:User Query → Tool Decision → Parallel Tools → Synthesis → Response</p>
+  </div>
+  <button class="dl" id="dl-all">下載 PNG</button>
+</header>
+
+<section data-diagram="d1" data-filename="claude-agent-flow">
+  <header>
+    <h2>Claude Agent 決策流程</h2>
+    <button class="dl" data-dl="d1">下載 PNG</button>
+  </header>
+  <p class="caption">User Query 進入 Agent,Tool Use Decision 決定要呼叫的工具(可平行三個),結果由 Synthesis 階段彙整為單一 Response 回傳。</p>
+  <svg id="d1" viewBox="0 0 1280 420"></svg>
+</section>
+
+<script>
+const SLIDE_BG = '#faf6ed';
+const ARROW_COLOR = '#44403c';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const STYLES = {
+  ui:         { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a8a' },
+  core:       { fill: '#fed7aa', stroke: '#ea580c', text: '#7c2d12' },
+  perception: { fill: '#ccfbf1', stroke: '#0d9488', text: '#134e4a' },
+  graph:      { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
+  planning:   { fill: '#fce7f3', stroke: '#db2777', text: '#831843' },
+  skills:     { fill: '#fef9c3', stroke: '#ca8a04', text: '#713f12' },
+  storage:    { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' },
+  ext:        { fill: '#f1f5f9', stroke: '#64748b', text: '#334155' },
+  io:         { fill: '#e0f2fe', stroke: '#0284c7', text: '#0c4a6e' },
+  warn:       { fill: '#fee2e2', stroke: '#dc2626', text: '#7f1d1d' },
+};
+
+function el(tag, attrs = {}) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v !== undefined && v !== null) e.setAttribute(k, v);
+  }
+  return e;
+}
+
+function ensureDefs(svg) {
+  if (svg.querySelector('defs')) return;
+  const defs = el('defs');
+  const marker = el('marker', {
+    id: 'arrow-' + svg.id,
+    viewBox: '0 0 10 10',
+    refX: 9, refY: 5,
+    markerWidth: 7, markerHeight: 7,
+    orient: 'auto-start-reverse',
+  });
+  marker.appendChild(el('path', { d: 'M0,0 L10,5 L0,10 z', fill: ARROW_COLOR }));
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+}
+
+function drawBox(svg, box) {
+  const s = STYLES[box.style] || STYLES.core;
+  const g = el('g');
+
+  if (box.shape === 'db') {
+    const ry = 12;
+    g.appendChild(el('rect', {
+      x: box.x, y: box.y + ry, width: box.w, height: box.h - 2 * ry,
+      fill: s.fill, stroke: s.stroke, 'stroke-width': 1.8,
+    }));
+    g.appendChild(el('ellipse', {
+      cx: box.x + box.w / 2, cy: box.y + ry,
+      rx: box.w / 2, ry: ry,
+      fill: s.fill, stroke: s.stroke, 'stroke-width': 1.8,
+    }));
+    g.appendChild(el('ellipse', {
+      cx: box.x + box.w / 2, cy: box.y + box.h - ry,
+      rx: box.w / 2, ry: ry,
+      fill: 'transparent', stroke: s.stroke, 'stroke-width': 1.8,
+    }));
+  } else {
+    g.appendChild(el('rect', {
+      x: box.x, y: box.y, width: box.w, height: box.h,
+      rx: 14, ry: 14,
+      fill: s.fill, stroke: s.stroke, 'stroke-width': 1.8,
+    }));
+  }
+
+  const lines = box.label.split('\n');
+  const titleH = 22;
+  const lineH = 19;
+  const totalH = titleH + (lines.length - 1) * lineH;
+  let y = box.y + box.h / 2 - totalH / 2 + 16;
+  lines.forEach((line, i) => {
+    const t = el('text', {
+      x: box.x + box.w / 2, y: y,
+      'text-anchor': 'middle',
+      class: i === 0 ? 'box-title' : 'box-line',
+      fill: s.text,
+    });
+    t.textContent = line;
+    g.appendChild(t);
+    y += i === 0 ? titleH : lineH;
+  });
+
+  svg.appendChild(g);
+}
+
+function edgePoint(box, side, frac = 0.5) {
+  switch (side) {
+    case 'left':   return [box.x, box.y + box.h * frac];
+    case 'right':  return [box.x + box.w, box.y + box.h * frac];
+    case 'top':    return [box.x + box.w * frac, box.y];
+    case 'bottom': return [box.x + box.w * frac, box.y + box.h];
+  }
+}
+
+function drawArrow(svg, boxesById, arrow) {
+  const from = boxesById[arrow.from];
+  const to = boxesById[arrow.to];
+  if (!from || !to) { console.warn('missing box', arrow); return; }
+  const fromSide = arrow.sides ? arrow.sides[0] : 'right';
+  const toSide = arrow.sides ? arrow.sides[1] : 'left';
+  const [x1, y1] = edgePoint(from, fromSide, arrow.fromFrac ?? 0.5);
+  const [x2, y2] = edgePoint(to, toSide, arrow.toFrac ?? 0.5);
+
+  let pathD;
+  if (arrow.curve) {
+    let cp1x, cp1y, cp2x, cp2y;
+    const horiz = fromSide === 'right' || fromSide === 'left';
+    if (horiz) {
+      const sign = fromSide === 'right' ? 1 : -1;
+      const len = Math.max(40, Math.abs(x2 - x1) * 0.5);
+      cp1x = x1 + sign * len; cp1y = y1;
+      const sign2 = toSide === 'right' ? 1 : -1;
+      cp2x = x2 + sign2 * len; cp2y = y2;
+    } else {
+      const sign = fromSide === 'bottom' ? 1 : -1;
+      const len = Math.max(40, Math.abs(y2 - y1) * 0.5);
+      cp1x = x1; cp1y = y1 + sign * len;
+      const sign2 = toSide === 'bottom' ? 1 : -1;
+      cp2x = x2; cp2y = y2 + sign2 * len;
+    }
+    pathD = `M${x1},${y1} C${cp1x},${cp1y} ${cp2x},${cp2y} ${x2},${y2}`;
+  } else {
+    pathD = `M${x1},${y1} L${x2},${y2}`;
+  }
+
+  const path = el('path', {
+    d: pathD,
+    fill: 'none',
+    stroke: arrow.color || ARROW_COLOR,
+    'stroke-width': 1.8,
+    'marker-end': 'url(#arrow-' + svg.id + ')',
+  });
+  if (arrow.dashed) path.setAttribute('stroke-dasharray', '6 4');
+  if (arrow.bidirectional) path.setAttribute('marker-start', 'url(#arrow-' + svg.id + ')');
+  svg.appendChild(path);
+
+  if (arrow.label) {
+    const lx = (x1 + x2) / 2 + (arrow.labelOffset?.dx || 0);
+    const ly = (y1 + y2) / 2 + (arrow.labelOffset?.dy || 0);
+    const approxW = Math.max(arrow.label.length * 8 + 18, 40);
+    const approxH = 22;
+    svg.appendChild(el('rect', {
+      x: lx - approxW / 2, y: ly - approxH / 2,
+      width: approxW, height: approxH,
+      rx: 11, ry: 11,
+      fill: 'white', stroke: '#e2e8f0', 'stroke-width': 1,
+    }));
+    const t = el('text', {
+      x: lx, y: ly + 4,
+      'text-anchor': 'middle',
+      class: 'arrow-label',
+    });
+    t.textContent = arrow.label;
+    svg.appendChild(t);
+  }
+}
+
+function renderDiagram(svgId, config) {
+  const svg = document.getElementById(svgId);
+  ensureDefs(svg);
+  const boxesById = {};
+  config.boxes.forEach(b => { boxesById[b.id] = b; });
+  config.boxes.forEach(b => drawBox(svg, b));
+  (config.arrows || []).forEach(a => drawArrow(svg, boxesById, a));
+}
+
+const EMBED_CSS = `
+  text { font-family: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif; }
+  .box-title { font-weight: 700; font-size: 16px; }
+  .box-line { font-size: 13px; }
+  .arrow-label { font-size: 12px; fill: #44403c; }
+`;
+
+async function exportDiagramAsPng(svgId, filename, bgColor = SLIDE_BG, scale = 2) {
+  try { await document.fonts.ready; } catch {}
+  const svg = document.getElementById(svgId);
+  const clone = svg.cloneNode(true);
+  const styleEl = document.createElementNS(SVG_NS, 'style');
+  styleEl.textContent = EMBED_CSS;
+  clone.insertBefore(styleEl, clone.firstChild);
+  const vb = svg.viewBox.baseVal;
+  clone.setAttribute('xmlns', SVG_NS);
+  clone.setAttribute('width', vb.width);
+  clone.setAttribute('height', vb.height);
+  const xml = new XMLSerializer().serializeToString(clone);
+  const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(vb.width * scale);
+  canvas.height = Math.round(vb.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (bgColor) {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  await new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename + '.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      resolve();
+    }, 'image/png');
+  });
+}
+
+function setupDownload() {
+  document.querySelectorAll('button[data-dl]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const svgId = btn.dataset.dl;
+      const section = btn.closest('section');
+      const filename = section.dataset.filename || svgId;
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = '產生中…';
+      try {
+        await exportDiagramAsPng(svgId, filename);
+      } catch (e) {
+        console.error(e);
+        alert('匯出失敗:' + (e?.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
+      }
+    });
+  });
+
+  document.getElementById('dl-all').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const prev = btn.textContent;
+    try {
+      for (const section of document.querySelectorAll('section[data-diagram]')) {
+        btn.textContent = '匯出 ' + section.dataset.diagram + '…';
+        await exportDiagramAsPng(section.dataset.diagram, section.dataset.filename);
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }
+  });
+}
+setupDownload();
+
+// =========================================================================
+// Claude Agent Decision Flow
+// Spine center y = 210. Tools 三個 stacked (toolA y=60 / toolB y=170 / toolC y=280)
+// 從 decision.right 用 fromFrac 0.2 / 0.5 / 0.8 扇出,從 synth.left 用 toFrac 同樣
+// 收回。中間 toolB 與主軸對齊,toolA/toolC 用 curve 平緩偏移。
+// =========================================================================
+renderDiagram('d1', {
+  boxes: [
+    { id: 'query',    x: 30,   y: 170, w: 170, h: 80, style: 'io',
+      label: 'User Query' },
+    { id: 'decision', x: 240,  y: 170, w: 220, h: 80, style: 'planning',
+      label: 'Tool Use Decision' },
+
+    { id: 'toolA',    x: 520,  y: 60,  w: 220, h: 80, style: 'skills',
+      label: 'Tool A\nSearch' },
+    { id: 'toolB',    x: 520,  y: 170, w: 220, h: 80, style: 'skills',
+      label: 'Tool B\nRead File' },
+    { id: 'toolC',    x: 520,  y: 280, w: 220, h: 80, style: 'skills',
+      label: 'Tool C\nExecute' },
+
+    { id: 'synth',    x: 800,  y: 170, w: 230, h: 80, style: 'graph',
+      label: 'Result Synthesis' },
+    { id: 'response', x: 1090, y: 170, w: 170, h: 80, style: 'io',
+      label: 'Response' },
+  ],
+  arrows: [
+    { from: 'query',    to: 'decision', sides: ['right','left'] },
+
+    { from: 'decision', to: 'toolA', sides: ['right','left'], fromFrac: 0.2, curve: true },
+    { from: 'decision', to: 'toolB', sides: ['right','left'], fromFrac: 0.5 },
+    { from: 'decision', to: 'toolC', sides: ['right','left'], fromFrac: 0.8, curve: true },
+
+    { from: 'toolA', to: 'synth', sides: ['right','left'], toFrac: 0.2, curve: true },
+    { from: 'toolB', to: 'synth', sides: ['right','left'], toFrac: 0.5 },
+    { from: 'toolC', to: 'synth', sides: ['right','left'], toFrac: 0.8, curve: true },
+
+    { from: 'synth', to: 'response', sides: ['right','left'] },
+  ],
+});
+</script>
+</body>
+</html>
