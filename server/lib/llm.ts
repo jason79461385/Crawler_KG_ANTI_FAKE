@@ -2,16 +2,26 @@ type EmbeddingResult = {
   embedding: number[];
 };
 
-const workerApiUrl = process.env.WORKER_API_URL;
-const workerModelName = process.env.WORKER_MODEL_NAME;
-const workerApiKey = process.env.WORKER_API_KEY;
+// Worker / LLM 設定 — GPT_KEY 一旦設定就強制走 OpenAI,
+// 不管 .env 是否還留著舊的 WORKER_* (避免使用者忘了註解掉舊 ollama 配置)。
+const useOpenAi = Boolean(process.env.GPT_KEY);
+const workerApiUrl = useOpenAi
+  ? "https://api.openai.com/v1"
+  : process.env.WORKER_API_URL;
+const workerModelName = useOpenAi
+  ? (process.env.GPT_MODEL ?? "gpt-4o-mini")
+  : process.env.WORKER_MODEL_NAME;
+const workerApiKey = useOpenAi
+  ? process.env.GPT_KEY
+  : process.env.WORKER_API_KEY;
 
 const embeddingApiUrl = process.env.EMBEDDING_API_URL;
 const embeddingModelName = process.env.EMBEDDING_MODEL_NAME;
 const embeddingApiKey = process.env.EMBEDDING_API_KEY;
 
+// OpenAI 端點通常 <3s,timeout 拉短一點;遠端自架 ollama 慢可從 .env 覆寫
 const EMBEDDING_TIMEOUT_MS = Number(process.env.EMBEDDING_TIMEOUT_MS ?? 15000);
-const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 60000);
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 25000);
 
 async function fetchWithTimeout(
   url: string,
